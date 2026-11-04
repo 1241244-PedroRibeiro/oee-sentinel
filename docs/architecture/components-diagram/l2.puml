@@ -1,0 +1,43 @@
+@startuml L2_Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title OEE-Sentinel — C4 Level 2 (Container)
+
+LAYOUT_TOP_DOWN()
+
+' ---- Actors --------------------------------------------------------------
+
+Person(operator, "Plant Operator", "Uploads logs, views OEE.")
+Person(engineer, "Production Engineer", "Analyses Pareto, configures machines.")
+Person(manager, "Plant Manager", "Reviews trends.")
+
+' ---- External systems ----------------------------------------------------
+
+System_Ext(mes, "External MES / ERP", "Consumes OEE over REST.")
+System_Ext(prometheus, "Prometheus / Enterprise Monitoring", "Scrapes /metrics. (Planned T5.)")
+
+' ---- System boundary -----------------------------------------------------
+
+System_Boundary(oee, "OEE-Sentinel") {
+
+    Container(webapp, "Web App", "ASP.NET Core 10 / Blazor Server", "Hosts the Blazor dashboard,\nthe REST API, the Application handlers,\nthe Domain model, and the CSV parser.")
+
+    ContainerDb(db, "Database", "PostgreSQL 16", "Stores machines, downtime reasons,\ningestion lifecycle, production shifts,\nand raw production events.")
+}
+
+' ---- Relations -----------------------------------------------------------
+
+Rel(operator, webapp, "Uploads logs, views OEE", "HTTPS / SignalR")
+Rel(engineer, webapp, "Analyses Pareto, configures machines (T2)", "HTTPS / SignalR")
+Rel(manager, webapp, "Reviews OEE trends", "HTTPS / SignalR")
+
+Rel(mes, webapp, "Queries OEE aggregates and shift facts", "JSON/HTTPS")
+Rel(prometheus, webapp, "Scrapes /metrics (planned T5)", "OpenMetrics/HTTP")
+
+Rel(webapp, db, "Reads/writes via EF Core +\nbulk-inserts via EFCore.BulkExtensions", "Npgsql / TCP")
+
+' ---- Legend --------------------------------------------------------------
+
+LAYOUT_WITH_LEGEND()
+SHOW_FLOATING_LEGEND()
+@enduml

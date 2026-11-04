@@ -1,0 +1,294 @@
+@startuml L4_Code_Domain
+title OEE-Sentinel — C4 Level 4 (Code) — Domain Layer
+
+' Note: per KB §6.2, Level 4 is produced ONLY where complexity justifies it.
+' For OEE-Sentinel, that is the Domain layer — the product itself.
+
+skinparam classAttributeIconSize 0
+skinparam monochrome false
+skinparam shadowing false
+
+' =========================================================================
+' Value Objects
+' =========================================================================
+
+package "OEESentinel.Domain.ValueObjects" {
+
+    class Percentage <<record>> {
+        + double Value
+        + Percentage(double value)
+        note: 0.0 <= Value <= 1.0
+    }
+
+    class Duration <<record>> {
+        + double Seconds
+        + Duration(double seconds)
+        note: Seconds >= 0
+    }
+
+    class IdealCycleTime <<record>> {
+        + double Seconds
+        + IdealCycleTime(double seconds)
+        note: Seconds > 0
+    }
+
+    class TimeRange <<record>> {
+        + DateTimeOffset Start
+        + DateTimeOffset End
+        + TimeRange(DateTimeOffset start, DateTimeOffset end)
+        note: Start < End
+    }
+
+    class MachineCode <<record>> {
+        + string Value
+        + MachineCode(string value)
+        note: ^[A-Z0-9-]{2,32}$
+    }
+
+    class EmailAddress <<record>> {
+        + string Value
+        + EmailAddress(string value)
+        note: lowercase, RFC-compliant
+    }
+
+    class ProductionTotals <<record>> {
+        + int TotalParts
+        + int ApprovedParts
+        + int RejectedParts «derived»
+        + ProductionTotals(int total, int approved)
+        note: 0 <= ApprovedParts <= TotalParts
+    }
+
+    class DowntimeBreakdown <<record>> {
+        + IReadOnlyDictionary Entries
+        + Duration Total «derived»
+        note: Dictionary<DowntimeReasonCode, Duration>
+    }
+
+    class OeeMetrics <<record>> {
+        + Percentage Availability
+        + Percentage Performance
+        + Percentage Quality
+        + Percentage GlobalOee
+        + {static} OeeMetrics CreateFromCalculation(
+              Duration planned,
+              Duration downtime,
+              ProductionTotals totals,
+              IdealCycleTime idealCycleTime)
+        note: Private constructor.
+        note: All four fields in [0,1].
+        note: Only creatable via OeeCalculatorEngine.
+    }
+}
+
+' =========================================================================
+' Aggregate Roots & Entities
+' =========================================================================
+
+package "OEESentinel.Domain.Entities" {
+
+    abstract class AggregateRoot<TId> {
+        + TId Id { get; }
+    }
+
+    class Machine <<AggregateRoot>> {
+        + MachineCode Code
+        + string Name
+        + IdealCycleTime IdealCycleTime
+        + Duration PlannedShiftDuration
+        + bool IsActive
+        + Machine(...)
+        + activate()
+        + deactivate()
+        note: Soft deactivation only.
+        note: Historical FKs preserved.
+    }
+
+    class ProductionShift <<AggregateRoot>> {
+        + Guid Id
+        + MachineCode MachineCode
+        + TimeRange Window
+        + ProductionTotals Totals
+        + DowntimeBreakdown Downtime
+        + OeeMetrics Metrics
+        + Guid SourceIngestionId
+        + Guid? SupersededBy
+        + DateTimeOffset RecordedAt
+        + ProductionShift(...)
+        note: Immutable after persist.
+        note: Only `SupersededBy` may be updated,
+        note: once, to record a correction.
+    }
+
+    class LogIngestion <<AggregateRoot>> {
+        + Guid Id
+        + MachineCode MachineCode
+        + string OriginalFileName
+        + IngestionStatus Status
+        + int RowsProcessed
+        + int RowsRejected
+        + string? FailureReason
+        + DateTimeOffset UploadedAt
+        + DateTimeOffset? CompletedAt
+        + LogIngestion(...)
+        + markProcessing()
+        + markCompleted(int rows, int rejected)
+        + markFailed(string reason)
+    }
+
+    class DowntimeReason <<AggregateRoot>> {
+        + DowntimeReasonCode Code
+        + string Description
+        + DowntimeCategory Category
+        + bool IsActive
+        + DowntimeReason(...)
+        + deactivate()
+        note: Reference aggregate.
+        note: Cannot be deleted if referenced
+        note: in any ProductionShift.Downtime.
+    }
+
+    class User <<AggregateRoot>> {
+        + Guid Id
+        + EmailAddress Email
+        + string PasswordHash
+        + string DisplayName
+        + UserRole Role
+        + bool IsActive
+        + User(...)
+        + deactivate()
+    }
+}
+
+' =========================================================================
+' Domain Service
+' =========================================================================
+
+package "OEESentinel.Domain.Services" {
+
+    class OeeCalculatorEngine <<domain service>> {
+        + {static} OeeMetrics Calculate(
+              Duration plannedProductionTime,
+              Duration totalDowntime,
+              ProductionTotals totals,
+              IdealCycleTime idealCycleTime)
+    }
+}
+
+' =========================================================================
+' Enumerations
+' =========================================================================
+
+package "OEESentinel.Domain.Enums" {
+    enum IngestionStatus {
+        PENDING
+        PROCESSING
+        COMPLETED
+        FAILED
+    }
+    enum DowntimeCategory {
+        PLANNED
+        UNPLANNED
+    }
+    enum UserRole {
+        OPERATOR
+        ENGINEER
+        ADMINISTRATOR
+    }
+}
+
+' =========================================================================
+' Relationships
+' =========================================================================
+
+' Machine composition
+Machine *-- MachineCode
+Machine *-- IdealCycleTime
+Machine *-- Duration : plannedShiftDuration
+
+' ProductionShift composition (all VOs are parts of the fact)
+ProductionShift *-- TimeRange
+ProductionShift *-- ProductionTotals
+ProductionShift *-- DowntimeBreakdown
+ProductionShift *-- OeeMetrics
+
+' Aggregate root inheritance
+Machine --|> AggregateRoot
+ProductionShift --|> AggregateRoot
+LogIngestion --|> AggregateRoot
+DowntimeReason --|> AggregateRoot
+User --|> AggregateRoot
+
+' Cross-aggregate references: by typed ID only, never by object pointer
+ProductionShift --> MachineCode : by code
+ProductionShift --> LogIngestion : by SourceIngestionId
+LogIngestion --> MachineCode : by code
+
+' Value object composition
+OeeMetrics *-- Percentage : availability, performance, quality, oee
+ProductionTotals --|> Percentage : no
+note on link
+  ProductionTotals is NOT a Percentage.
+  RejectedParts is a computed int.
+end note
+
+DowntimeBreakdown o-- Duration : values
+
+' Enumerations used by aggregates
+LogIngestion --> IngestionStatus
+DowntimeReason --> DowntimeCategory
+User --> UserRole
+User *-- EmailAddress
+
+' Calculator dependencies (reads VOs, produces OeeMetrics)
+OeeCalculatorEngine ..> Duration : input
+OeeCalculatorEngine ..> ProductionTotals : input
+OeeCalculatorEngine ..> IdealCycleTime : input
+OeeCalculatorEngine ..> OeeMetrics : «creates»
+
+' =========================================================================
+' Notes: invariants mirrored in the DB (08-database-structure.md)
+' =========================================================================
+
+note bottom of Percentage
+  DB CHECK: availability, performance,
+  quality, oee BETWEEN 0 AND 1
+  (on production_shifts).
+end note
+
+note bottom of IdealCycleTime
+  DB CHECK: machines.ideal_cycle_seconds > 0.
+end note
+
+note bottom of TimeRange
+  DB CHECK: production_shifts
+  window_start < window_end.
+end note
+
+note bottom of ProductionTotals
+  DB CHECK: total_parts >= 0 AND
+  approved_parts >= 0 AND
+  approved_parts <= total_parts.
+  rejected_parts GENERATED ALWAYS AS
+  (total_parts - approved_parts).
+end note
+
+note bottom of OeeCalculatorEngine
+  Pure static method.
+  No I/O, no clock, no DI.
+  Throws on planned == 0
+  and on downtime > planned.
+  Clamps all outputs to [0,1]
+  defensively (documented).
+end note
+
+note bottom of ProductionShift
+  Partial unique index:
+  uq_production_shifts_current
+  ON (machine_code, window_start,
+      window_end)
+  WHERE superseded_by_id IS NULL.
+  Enforces "one current shift per window".
+end note
+
+@enduml

@@ -1,0 +1,90 @@
+@startuml L3_Component
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title OEE-Sentinel — C4 Level 3 (Component) — Web App container
+
+LAYOUT_LEFT_RIGHT()
+
+' ---- Actors --------------------------------------------------------------
+
+Person(operator, "Plant Operator", "")
+Person(engineer, "Production Engineer", "")
+Person(manager, "Plant Manager", "")
+System_Ext(mes, "External MES / ERP", "")
+
+' ---- Web App container ---------------------------------------------------
+
+Container_Boundary(webapp, "OEE-Sentinel Web App") {
+
+    ' ---- Inbound adapters --------------------------------------------
+
+    Component(blazor, "Blazor Server Pages", "Razor components", "Upload, MachineDetail, Pareto,\nIngestions, Home. Bind user\ninput; render gauges and charts.")
+
+    Component(rest, "REST API Endpoints", "Minimal API", "Exposes /api/v1/... per the\nOpenAPI contract. Maps domain\nexceptions to ProblemDetails.")
+
+    Component(composition, "Composition Root", "Program.cs", "Wires concrete adapters to\nports. Configures EF Core,\nBlazor, OpenAPI. Runs migrations\non startup.")
+
+    ' ---- Application -------------------------------------------------
+
+    Component(handlers, "Application Handlers", "C# classes", "ProcessLogFile, GetMachineOee,\nGetMachineShift, GetDowntimePareto,\nListRecentIngestions.\nOrchestrate use cases; map to DTOs.")
+
+    Component(ports, "Application Ports", "C# interfaces", "IMachineRepository, IProductionShiftRepository,\nILogIngestionRepository, IProductionEventRepository,\nIDowntimeReasonRepository, IProductionLogParser,\nIUnitOfWork.")
+
+    ' ---- Domain ------------------------------------------------------
+
+    Component(calc, "OeeCalculatorEngine", "Domain Service (pure static)", "Computes Availability, Performance,\nQuality, OEE from Duration, Totals,\nIdealCycleTime. No I/O; throws on\nstructural corruption; clamps [0,1].")
+
+    Component(aggregates, "Aggregate Roots", "Domain entities", "Machine, ProductionShift,\nLogIngestion, DowntimeReason, User.\nRich behaviour; no setters.")
+
+    Component(valueobjects, "Value Objects", "Immutable records", "OeeMetrics, ProductionTotals,\nDowntimeBreakdown, Percentage, Duration,\nIdealCycleTime, TimeRange, MachineCode,\nEmailAddress, DowntimeReasonCode.")
+
+    ' ---- Infrastructure ----------------------------------------------
+
+    Component(parser, "CsvProductionLogParser", "IProductionLogParser impl", "Streams CSV via CsvHelper.\nEmits IAsyncEnumerable<ProductionEvent>.\nPer-line rejection; bounded memory.")
+
+    Component(repos, "EF Core Repositories", "Infrastructure adapters", "Ef{Entity}Repository implementations\nof the Application ports.")
+
+    Component(dbcontext, "OEESentinelDbContext", "EF Core", "Configures OwnsOne/ToJson mappings,\nenum conversions, indexes, migrations.")
+
+}
+
+' ---- Database ------------------------------------------------------------
+
+ContainerDb_Ext(db, "PostgreSQL 16", "Database", "Reference data, ingestion lifecycle,\nproduction facts, raw events.")
+
+' ---- Relations -----------------------------------------------------------
+
+Rel(operator, blazor, "Uses", "HTTPS / SignalR")
+Rel(engineer, blazor, "Uses", "HTTPS / SignalR")
+Rel(manager, blazor, "Uses", "HTTPS / SignalR")
+Rel(mes, rest, "Queries OEE", "JSON/HTTPS")
+
+Rel(blazor, handlers, "Invokes", "in-process")
+Rel(rest, handlers, "Invokes", "in-process")
+
+Rel(handlers, calc, "Computes via", "C#")
+Rel(handlers, aggregates, "Orchestrates", "C#")
+Rel(handlers, ports, "Depends on", "C# interfaces")
+
+Rel(calc, valueobjects, "Returns", "C#")
+Rel(aggregates, valueobjects, "Composes", "C#")
+
+Rel(parser, ports, "Implements", "C#", "«implements»")
+Rel(repos, ports, "Implements", "C#", "«implements»")
+
+Rel(handlers, parser, "Streams via", "IAsyncEnumerable<ProductionEvent>")
+Rel(handlers, repos, "Persists via", "C# interfaces")
+
+Rel(repos, dbcontext, "Uses", "C#")
+Rel(dbcontext, db, "Reads/writes", "Npgsql / TCP")
+
+Rel(composition, handlers, "Wires", "DI")
+Rel(composition, parser, "Wires", "DI")
+Rel(composition, repos, "Wires", "DI")
+Rel(composition, dbcontext, "Wires", "DI")
+
+' ---- Legend --------------------------------------------------------------
+
+LAYOUT_WITH_LEGEND()
+SHOW_FLOATING_LEGEND()
+@enduml

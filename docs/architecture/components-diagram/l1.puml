@@ -1,0 +1,36 @@
+@startuml L1_SystemContext
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title OEE-Sentinel — C4 Level 1 (System Context)
+
+LAYOUT_TOP_DOWN()
+
+' ---- Actors --------------------------------------------------------------
+
+Person(operator, "Plant Operator", "Floor staff. Uploads shift log files,\nchecks OEE per shift, acknowledges errors.")
+Person(engineer, "Production Engineer", "Technical staff. Analyses downtime Pareto,\nconfigures machines and downtime catalogues.")
+Person(manager, "Plant Manager", "Business stakeholder. Reviews aggregated\nOEE trends and drill-down to shifts.")
+
+' ---- System in scope -----------------------------------------------------
+
+System(oee, "OEE-Sentinel", "Self-hosted industrial analytics engine.\nIngests CSV/TXT logs, computes A/P/Q/OEE,\nserves a Blazor dashboard and a REST API.")
+
+' ---- External systems ----------------------------------------------------
+
+System_Ext(mes, "External MES / ERP", "Consumes OEE results programmatically.\nIntegration via REST API only.")
+System_Ext(prometheus, "Prometheus / Enterprise Monitoring", "Scrapes /metrics for plant-wide dashboards.\n(Planned: Roadmap T5 — not in baseline.)")
+
+' ---- Relations -----------------------------------------------------------
+
+Rel(operator, oee, "Uploads shift logs, views OEE", "HTTPS")
+Rel(engineer, oee, "Reviews Pareto, configures machines\n(configure = planned T2)", "HTTPS")
+Rel(manager, oee, "Reviews aggregated OEE trends", "HTTPS")
+
+Rel(mes, oee, "Queries OEE aggregates and shift facts", "JSON/HTTPS")
+Rel(prometheus, oee, "Scrapes /metrics (planned T5)", "OpenMetrics/HTTP")
+
+' ---- Legend --------------------------------------------------------------
+
+LAYOUT_WITH_LEGEND()
+SHOW_FLOATING_LEGEND()
+@enduml
