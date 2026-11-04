@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OEESentinel.Application/OEESentinel.Application.csproj" />
+    <Project Path="src/OEESentinel.Domain/OEESentinel.Domain.csproj" />
+    <Project Path="src/OEESentinel.Infrastructure/OEESentinel.Infrastructure.csproj" />
+    <Project Path="src/OEESentinel.WebUI/OEESentinel.WebUI.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OEESentinel.UnitTests/OEESentinel.UnitTests.csproj" />
+  </Folder>
+</Solution>
