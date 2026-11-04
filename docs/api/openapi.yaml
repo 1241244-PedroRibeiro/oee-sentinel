@@ -1,0 +1,1063 @@
+openapi: 3.0.3
+
+info:
+  title: OEE-Sentinel REST API
+  version: 0.1.0-baseline
+  description: |
+    REST API for **OEE-Sentinel** — an industrial production-log analysis
+    engine. Ingests raw CSV/TXT shift logs, computes Availability,
+    Performance, Quality, and the consolidated **OEE**, and exposes the
+    resulting facts for external MES/ERP integration.
+
+    ## Contract source of truth
+
+    This document is the authoritative contract (`docs/api/openapi.yaml`).
+    It is the baseline companion to `docs/sad/06-api-design-specification.md`.
+    Any endpoint in `Program.cs` MUST appear here. Any endpoint in this file
+    MUST be implemented.
+
+    ## Baseline vs planned
+
+    * **Baseline (this document):** no authentication. The API is designed
+      to run on a plant's trusted internal network (`docker compose up`).
+    * **Planned (Roadmap T2 — authenticated upload):** JWT via
+      `Authorization: Bearer <token>` will be added at the `WebUI`
+      boundary. This document will be updated then; the URL surface
+      remains `/api/v1`.
+
+    ## Aggregation policy
+
+    `GET /machines/{code}/oee` computes the four pillars from **totals**,
+    never by averaging shift-level percentages. This is documented in
+    `06-api-design-specification.md` §3.3 and enforced by
+    `AggregateOeeFromShifts` in the Application layer.
+
+    ## Error envelope
+
+    All 4xx/5xx responses use RFC 9457 `ProblemDetails`. No custom error
+    envelope. No stack traces in `500`.
+  contact:
+    name: OEE-Sentinel Development Team
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000
+    description: Local development (`dotnet run`)
+  - url: http://localhost:8080
+    description: Docker Compose (`docker compose up`)
+  - url: https://{plantHost}
+    description: Production plant deployment
+    variables:
+      plantHost:
+        default: oee-sentinel.plant.local
+        description: Hostname assigned by the plant's IT
+
+tags:
+  - name: Logs
+    description: Production log ingestion and ingestion-status polling
+  - name: Machines
+    description: Reference data for production assets
+  - name: OEE
+    description: Computed effectiveness metrics and analytical reads
+  - name: Health
+    description: Liveness and readiness probes
+
+security: []
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+  /api/v1/logs:
+    post:
+      tags: [Logs]
+      summary: Upload a production log and compute the shift OEE
+      description: |
+        Accepts a multipart upload of a CSV/TXT shift log, streams the file
+        through the parser (bounded memory, per-line rejection), invokes
+        `OeeCalculatorEngine`, persists a `ProductionShift` fact, and
+        returns the ingestion status.
+
+        **Duplicate policy (baseline):** a non-superseded `ProductionShift`
+        already exists for the same `(machineCode, windowStart, windowEnd)`
+        → `409 Conflict`. Corrections are an explicit operation (Roadmap
+        T4).
+
+        **Domain failures:** `planned == 0` or `downtime > planned` →
+        `422 Unprocessable Entity`. The shift is not persisted; the
+        `LogIngestion` is recorded as `FAILED` with a stable reason code.
+
+        **Async path:** reserved for Roadmap T3 (folder watcher). The
+        baseline is synchronous — `status` in the 201 body is always
+        `COMPLETED`.
+      operationId: uploadProductionLog
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogUploadRequest'
+            encoding:
+              file:
+                contentType: text/csv, text/plain
+      responses:
+        '201':
+          description: Ingestion completed successfully; a ProductionShift was persisted.
+          headers:
+            Location:
+              description: Canonical URL of the created shift.
+              schema:
+                type: string
+                example: /api/v1/machines/MAQ-01/shifts/019e2b1a-7d3f-7c4e-8b2f-5a6d8e0c4f12
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/MachineNotFound'
+        '409':
+          $ref: '#/components/responses/DuplicateShiftConflict'
+        '422':
+          $ref: '#/components/responses/DomainInvariant'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/logs/{ingestionId}:
+    get:
+      tags: [Logs]
+      summary: Retrieve an ingestion's lifecycle status
+      description: |
+        Polls the state of a `LogIngestion`. Used by the async path
+        (Roadmap T3); the baseline synchronous upload never returns
+        `PENDING` from the 201 response, but this endpoint is always
+        available for audit.
+      operationId: getIngestionStatus
+      parameters:
+        - $ref: '#/components/parameters/IngestionId'
+      responses:
+        '200':
+          description: Ingestion status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogIngestionStatus'
+        '404':
+          $ref: '#/components/responses/IngestionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/machines:
+    get:
+      tags: [Machines]
+      summary: List active machines
+      operationId: listMachines
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated list of machines.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMachines'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/machines/{code}:
+    get:
+      tags: [Machines]
+      summary: Retrieve a machine's configuration
+      operationId: getMachine
+      parameters:
+        - $ref: '#/components/parameters/MachineCode'
+      responses:
+        '200':
+          description: Machine detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineDetail'
+        '404':
+          $ref: '#/components/responses/MachineNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/machines/{code}/oee:
+    get:
+      tags: [OEE]
+      summary: Retrieve aggregated OEE across a window
+      description: |
+        Aggregates all **non-superseded** `ProductionShift` facts whose
+        window is fully contained in `[from, to)`. Aggregation is from
+        **totals**, not by averaging percentages (see
+        `06-api-design-specification.md` §3.3).
+
+        Window guard: `to - from ≤ 90 days`. Larger spans are rejected
+        with `400`.
+      operationId: getMachineOee
+      parameters:
+        - $ref: '#/components/parameters/MachineCode'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - $ref: '#/components/parameters/IncludeSuperseded'
+      responses:
+        '200':
+          description: Aggregated OEE for the window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineOeeAggregate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/MachineNotFound'
+        '422':
+          $ref: '#/components/responses/NoShiftsInWindow'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/machines/{code}/shifts:
+    get:
+      tags: [OEE]
+      summary: List individual ProductionShift facts for a machine
+      operationId: listMachineShifts
+      parameters:
+        - $ref: '#/components/parameters/MachineCode'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - $ref: '#/components/parameters/IncludeSuperseded'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated list of shift facts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedShifts'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/MachineNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/machines/{code}/pareto:
+    get:
+      tags: [OEE]
+      summary: Pareto breakdown of downtime reasons across a window
+      description: |
+        Returns the top-20 downtime reasons by aggregated duration.
+        Entries are sorted by `seconds` descending, ties broken by
+        `reasonCode` ascending (stable, testable). Percentages sum to
+        `1.0` (or `0.0` when the window is empty — see the 200 empty
+        response shape in the examples).
+      operationId: getMachinePareto
+      parameters:
+        - $ref: '#/components/parameters/MachineCode'
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+      responses:
+        '200':
+          description: Pareto breakdown.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachinePareto'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/MachineNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/health:
+    get:
+      tags: [Health]
+      summary: Liveness and readiness probe
+      description: |
+        Returns the application version, database reachability (a
+        `SELECT 1` with a 2-second timeout), and process uptime. Used
+        by Docker Compose healthchecks and a future Prometheus blackbox
+        exporter (Roadmap T5).
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service is running but a dependency is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+components:
+
+  parameters:
+
+    IngestionId:
+      name: ingestionId
+      in: path
+      required: true
+      description: The UUID of a `LogIngestion`.
+      schema:
+        type: string
+        format: uuid
+        example: 018e9c7e-6c2a-7b8e-9a3d-4f1c7e2b5d10
+
+    MachineCode:
+      name: code
+      in: path
+      required: true
+      description: Business code of a `Machine` (uppercase).
+      schema:
+        type: string
+        pattern: '^[A-Z0-9-]{2,32}$'
+        example: MAQ-01
+
+    DateFrom:
+      name: from
+      in: query
+      required: true
+      description: |
+        Inclusive lower bound of the analysis window. Accepts an ISO 8601
+        date (`2026-11-01`) or datetime (`2026-11-01T08:00:00Z`).
+      schema:
+        type: string
+        format: date-time
+        example: '2026-10-28T00:00:00Z'
+
+    DateTo:
+      name: to
+      in: query
+      required: true
+      description: |
+        Exclusive upper bound of the analysis window. Must be strictly
+        greater than `from`, and the span must not exceed 90 days.
+      schema:
+        type: string
+        format: date-time
+        example: '2026-11-04T00:00:00Z'
+
+    IncludeSuperseded:
+      name: includeSuperseded
+      in: query
+      required: false
+      description: |
+        When `true`, includes superseded `ProductionShift` facts in the
+        result. Defaults to `false`. Used only for audit; the default
+        view (current facts) is the primary analytical read.
+      schema:
+        type: boolean
+        default: false
+
+    Search:
+      name: search
+      in: query
+      required: false
+      description: Case-insensitive substring on machine `code` or `name`.
+      schema:
+        type: string
+        maxLength: 100
+        example: injection
+
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Page number (1-based).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Items per page (maximum 100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+
+    BadRequest:
+      description: |
+        Malformed request (missing field, invalid UUID, invalid date
+        range, span exceeds 90 days).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            invalid_window:
+              summary: Invalid date range
+              value:
+                type: https://oee-sentinel.local/errors/invalid-window
+                title: Invalid analysis window
+                status: 400
+                detail: The 'to' parameter must be strictly greater than 'from'.
+                instance: /api/v1/machines/MAQ-01/oee?from=2026-11-04&to=2026-11-01
+            span_too_large:
+              summary: Span exceeds 90 days
+              value:
+                type: https://oee-sentinel.local/errors/invalid-window
+                title: Analysis window too large
+                status: 400
+                detail: The requested window exceeds 90 days. Please narrow the range.
+                instance: /api/v1/machines/MAQ-01/oee?from=2026-01-01&to=2026-12-31
+
+    MachineNotFound:
+      description: The machine code does not exist or has been deactivated.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            not_found:
+              value:
+                type: https://oee-sentinel.local/errors/machine-not-found
+                title: Machine not found
+                status: 404
+                detail: "Machine 'MAQ-99' does not exist or has been deactivated."
+                instance: /api/v1/machines/MAQ-99/oee
+
+    IngestionNotFound:
+      description: The ingestion ID does not exist.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+    DuplicateShiftConflict:
+      description: |
+        A non-superseded `ProductionShift` already exists for the same
+        `(machineCode, window)`. Corrections are an explicit operation
+        (Roadmap T4).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            conflict:
+              value:
+                type: https://oee-sentinel.local/errors/shift-already-exists
+                title: Shift already exists for this window
+                status: 409
+                detail: A ProductionShift already exists for MAQ-01 in [2026-11-04T08:00:00Z, 2026-11-04T16:00:00Z].
+                instance: /api/v1/logs
+                extensions:
+                  existingShiftId: 019e2b1a-7d3f-7c4e-8b2f-5a6d8e0c4f12
+
+    DomainInvariant:
+      description: |
+        The request violates a domain invariant (`planned == 0` or
+        `downtime > planned`). The `ProductionShift` is not persisted;
+        the `LogIngestion` is recorded as `FAILED`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            planned_time_zero:
+              value:
+                type: https://oee-sentinel.local/errors/planned-time-zero
+                title: Planned production time is zero
+                status: 422
+                detail: The shift has zero planned time. OEE cannot be computed.
+                instance: /api/v1/logs
+            downtime_overflow:
+              value:
+                type: https://oee-sentinel.local/errors/downtime-overflow
+                title: Total downtime exceeds planned time
+                status: 422
+                detail: Reported downtime (32400 s) exceeds planned time (28800 s).
+                instance: /api/v1/logs
+
+    NoShiftsInWindow:
+      description: No non-superseded ProductionShift facts exist in the window.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            empty:
+              value:
+                type: https://oee-sentinel.local/errors/no-shifts-in-window
+                title: No shifts in window
+                status: 422
+                detail: No ProductionShift exists for MAQ-01 in [2026-10-28T00:00:00Z, 2026-11-04T00:00:00Z].
+                instance: /api/v1/machines/MAQ-01/oee?from=2026-10-28&to=2026-11-04
+
+    InternalError:
+      description: Unhandled server error. Stack traces are logged server-side only.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            internal:
+              value:
+                type: about:blank
+                title: An unexpected error occurred.
+                status: 500
+                instance: /api/v1/machines/MAQ-01/oee
+
+  schemas:
+
+    # -----------------------------------------------------------------------
+    # Ingestion
+    # -----------------------------------------------------------------------
+
+    LogUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [file, machineCode, windowStart, windowEnd]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: CSV or TXT production log, UTF-8.
+        machineCode:
+          type: string
+          pattern: '^[A-Z0-9-]{2,32}$'
+          example: MAQ-01
+        windowStart:
+          type: string
+          format: date-time
+          example: '2026-11-04T08:00:00Z'
+        windowEnd:
+          type: string
+          format: date-time
+          example: '2026-11-04T16:00:00Z'
+
+    LogUploadResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ingestionId
+        - status
+        - machineCode
+        - window
+        - rowsProcessed
+        - rowsRejected
+        - rejectedSample
+        - productionShiftId
+        - completedAt
+      properties:
+        ingestionId:
+          type: string
+          format: uuid
+          description: The `LogIngestion` aggregate's ID.
+        status:
+          $ref: '#/components/schemas/IngestionStatus'
+        machineCode:
+          type: string
+        window:
+          $ref: '#/components/schemas/Window'
+        rowsProcessed:
+          type: integer
+          minimum: 0
+        rowsRejected:
+          type: integer
+          minimum: 0
+        rejectedSample:
+          type: array
+          description: Bounded sample (≤ 100 entries) of rejected rows.
+          items:
+            $ref: '#/components/schemas/RejectedRowSample'
+        productionShiftId:
+          type: string
+          format: uuid
+        completedAt:
+          type: string
+          format: date-time
+
+    LogIngestionStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - ingestionId
+        - machineCode
+        - status
+        - uploadedAt
+        - rowsProcessed
+        - rowsRejected
+        - productionShiftId
+      properties:
+        ingestionId:
+          type: string
+          format: uuid
+        machineCode:
+          type: string
+        status:
+          $ref: '#/components/schemas/IngestionStatus'
+        uploadedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        rowsProcessed:
+          type: integer
+          minimum: 0
+        rowsRejected:
+          type: integer
+          minimum: 0
+        productionShiftId:
+          type: string
+          format: uuid
+          nullable: true
+        failureReason:
+          type: string
+          nullable: true
+          maxLength: 500
+
+    RejectedRowSample:
+      type: object
+      additionalProperties: false
+      required: [lineNumber, rawLine, reason]
+      properties:
+        lineNumber:
+          type: integer
+          minimum: 1
+        rawLine:
+          type: string
+        reason:
+          type: string
+          enum:
+            - MISSING_FIELD
+            - INVALID_DECIMAL_LOCALE
+            - INVALID_TIMESTAMP
+            - UNKNOWN_ERROR_CODE
+            - QUANTITY_NOT_INTEGER
+            - QUANTITY_NEGATIVE
+
+    IngestionStatus:
+      type: string
+      enum: [PENDING, PROCESSING, COMPLETED, FAILED]
+      description: |
+        Lifecycle of a `LogIngestion`. The baseline synchronous upload
+        always transitions to `COMPLETED` (on success) or `FAILED` (on
+        domain error). `PENDING`/`PROCESSING` are reserved for Roadmap
+        T3 (folder watcher).
+
+    # -----------------------------------------------------------------------
+    # Machines
+    # -----------------------------------------------------------------------
+
+    MachineSummary:
+      type: object
+      additionalProperties: false
+      required: [code, name, idealCycleSeconds, plannedShiftSeconds, isActive]
+      properties:
+        code:
+          type: string
+          example: MAQ-01
+        name:
+          type: string
+          example: Injection Press A1
+        idealCycleSeconds:
+          type: number
+          format: double
+          minimum: 0
+          exclusiveMinimum: true
+          example: 2.5
+        plannedShiftSeconds:
+          type: integer
+          minimum: 1
+          example: 28800
+        isActive:
+          type: boolean
+
+    MachineDetail:
+      allOf:
+        - $ref: '#/components/schemas/MachineSummary'
+        - type: object
+          additionalProperties: false
+          required: [createdAt, updatedAt]
+          properties:
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    PaginatedMachines:
+      type: object
+      additionalProperties: false
+      required: [items, page, pageSize, total, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineSummary'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+
+    # -----------------------------------------------------------------------
+    # OEE
+    # -----------------------------------------------------------------------
+
+    Window:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+      description: Invariant `start < end`.
+
+    DateWindow:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+      description: The query window echoed back. Invariant `from < to`.
+
+    ProductionTotalsDto:
+      type: object
+      additionalProperties: false
+      required: [totalParts, approvedParts, rejectedParts]
+      properties:
+        totalParts:
+          type: integer
+          minimum: 0
+        approvedParts:
+          type: integer
+          minimum: 0
+        rejectedParts:
+          type: integer
+          minimum: 0
+          description: Always equal to `totalParts - approvedParts`.
+
+    DowntimeEntry:
+      type: object
+      additionalProperties: false
+      required: [reasonCode, category, seconds]
+      properties:
+        reasonCode:
+          type: string
+          example: UNPLANNED_MECHANICAL
+        category:
+          $ref: '#/components/schemas/DowntimeCategory'
+        description:
+          type: string
+          description: Populated from the `DowntimeReason` catalogue.
+        seconds:
+          type: number
+          format: double
+          minimum: 0
+
+    DowntimeCategory:
+      type: string
+      enum: [PLANNED, UNPLANNED]
+
+    ProductionShiftSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - machineCode
+        - window
+        - totals
+        - downtimeBreakdown
+        - availability
+        - performance
+        - quality
+        - oee
+        - sourceIngestionId
+        - recordedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        machineCode:
+          type: string
+        window:
+          $ref: '#/components/schemas/Window'
+        totals:
+          $ref: '#/components/schemas/ProductionTotalsDto'
+        downtimeBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/DowntimeEntry'
+        availability:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        performance:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        quality:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        oee:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        sourceIngestionId:
+          type: string
+          format: uuid
+        supersededBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: Non-null when this shift has been superseded by a correction.
+        recordedAt:
+          type: string
+          format: date-time
+
+    PaginatedShifts:
+      type: object
+      additionalProperties: false
+      required: [items, page, pageSize, total, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductionShiftSummary'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+
+    MachineOeeAggregate:
+      type: object
+      additionalProperties: false
+      required:
+        - machineCode
+        - window
+        - shiftsIncluded
+        - totals
+        - availability
+        - performance
+        - quality
+        - oee
+        - lastUpdatedAt
+      properties:
+        machineCode:
+          type: string
+        window:
+          $ref: '#/components/schemas/DateWindow'
+        shiftsIncluded:
+          type: integer
+          minimum: 1
+        totals:
+          type: object
+          additionalProperties: false
+          required:
+            - plannedSeconds
+            - downtimeSeconds
+            - operatingSeconds
+            - totalParts
+            - approvedParts
+            - rejectedParts
+          properties:
+            plannedSeconds:
+              type: number
+              format: double
+              minimum: 0
+            downtimeSeconds:
+              type: number
+              format: double
+              minimum: 0
+            operatingSeconds:
+              type: number
+              format: double
+              minimum: 0
+            totalParts:
+              type: integer
+              minimum: 0
+            approvedParts:
+              type: integer
+              minimum: 0
+            rejectedParts:
+              type: integer
+              minimum: 0
+        availability:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        performance:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        quality:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        oee:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Recomputed from aggregates (`A × P × Q`), never averaged.
+        lastUpdatedAt:
+          type: string
+          format: date-time
+
+    ParetoEntry:
+      type: object
+      additionalProperties: false
+      required: [reasonCode, category, description, seconds, percentage]
+      properties:
+        reasonCode:
+          type: string
+        category:
+          $ref: '#/components/schemas/DowntimeCategory'
+        description:
+          type: string
+        seconds:
+          type: number
+          format: double
+          minimum: 0
+        percentage:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+
+    MachinePareto:
+      type: object
+      additionalProperties: false
+      required:
+        - machineCode
+        - window
+        - totalShifts
+        - totalDowntimeSeconds
+        - entries
+      properties:
+        machineCode:
+          type: string
+        window:
+          $ref: '#/components/schemas/DateWindow'
+        totalShifts:
+          type: integer
+          minimum: 0
+        totalDowntimeSeconds:
+          type: number
+          format: double
+          minimum: 0
+        entries:
+          type: array
+          description: |
+            Up to 20 entries, sorted by `seconds` descending. Percentages
+            sum to `1.0` (or `0.0` when `totalShifts == 0`).
+          items:
+            $ref: '#/components/schemas/ParetoEntry'
+
+    # -----------------------------------------------------------------------
+    # Health
+    # -----------------------------------------------------------------------
+
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, version, timestamp, database, uptimeSeconds]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        version:
+          type: string
+          example: 0.1.0-baseline
+        timestamp:
+          type: string
+          format: date-time
+        database:
+          type: string
+          enum: [connected, disconnected]
+        uptimeSeconds:
+          type: integer
+          minimum: 0
+
+    # -----------------------------------------------------------------------
+    # Errors (RFC 9457)
+    # -----------------------------------------------------------------------
+
+    ProblemDetails:
+      type: object
+      additionalProperties: true
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI reference identifying the problem type.
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        traceId:
+          type: string
+          description: OpenTelemetry-compatible trace ID.
