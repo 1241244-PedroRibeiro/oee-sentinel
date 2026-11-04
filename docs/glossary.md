@@ -1,0 +1,52 @@
+# OEE-Sentinel — Ubiquitous Language & Architectural Glossary
+
+Alphabetically organized domain, statistical, and architectural concepts drawn from the **Problem Statement (`docs/sad/01-problem-statement.md`)**, **Operational Context (`docs/sad/02-context.md`)**, **Architecture Decision Records (`docs/sad/adrs/`)** and the **Domain Model (`docs/domain/domain-model.md`)**. In strict compliance with DDD (KB §2.1, §3.1, §10.1), these exact terms must be used consistently across entities, value objects, application services, database migrations, OpenAPI schemas, and tests.
+
+> **Scope note:** Entries distinguish between the **Implemented Baseline** (target at submission) and the **Planned 20+ Hour Roadmap** (T1–T8), ensuring transparency between existing capabilities and scheduled AI-assisted iterations.
+
+| Concept | Explanation | Source |
+|---|---|---|
+| **Aggregate & Aggregate Root** | Cluster of entities/VOs treated as a single transactional (ACID) consistency boundary. External aggregates reference a root only by its typed ID (`MachineId`, `ShiftId`, `IngestionId`). | `docs/domain-model.md`; KB §3.2, §3.3 |
+| **Application Service** | Orchestration class in the Application layer coordinating a use case, invoking domain methods and domain services, and calling outbound ports (repositories, parser). Contains no business formulas and no SQL. | `docs/problem-statement.md` §3; KB §7.2 |
+| **Architecture Decision Record (ADR)** | Versioned document capturing a significant decision, its context, alternatives, and trade-offs. Baseline ships **ADR-0001** (Clean Architecture) and **ADR-0002** (Baseline Auth Deferral). Full set (T8) adds ADR-0003/0004. | `docs/sad/adrs/`; KB §1.2, §19.1 |
+| **Availability** | OEE pillar: `OperatingTime / PlannedProductionTime`, clamped to [0,1]. Captures losses from **stops** (breakdowns, changeovers, micro-stops). | `docs/problem-statement.md` §2.3; KB §7.2 |
+| **Blazor Server** | Frontend hosting model where UI events are sent over a SignalR circuit to the server and re-rendered. Used here to share C# models between engine and dashboard without a JS bridge. | `Visão Geral` §Arquitetura; KB §15 |
+| **`BulkInsert` (EFCore.BulkExtensions)** | High-throughput PostgreSQL insert extension used to persist `production_events` rows in batches. Complements streaming parse (parser does not buffer; persistence batches). | `docs/problem-statement.md` §3; KB §9.3 |
+| **Business Code** | Human-readable unique identifier alongside the internal UUID primary key: `MachineCode` (e.g., `MAQ-01`), `LogIngestion.Code` (e.g., `ING-2026-11-04-0007`), `DowntimeReason.Code` (e.g., `PLANNED_BREAK`, `UNPLANNED_MECHANICAL`). Enforced unique case-insensitively. | `docs/domain-model.md`; KB §21.1 |
+| **Clean / Onion Architecture** | Concentric architectural style enforcing *The Dependency Rule*: `Domain` and `Application` are pure; `Infrastructure` and `WebUI` are adapters depending inward. | ADR-0001; KB §7.2 |
+| **`CsvHelper`** | .NET CSV parsing library supporting `IAsyncEnumerable<T>` — the primary adapter for `IProductionLogParser`. Reads streaming, never buffers whole file. | `docs/problem-statement.md` §2.1; KB §9.2 |
+| **Data Transfer Object (DTO)** | Immutable transport structure carrying serialized JSON across the HTTP boundary. Domain entities never leak to controllers. | `docs/problem-statement.md` §3; KB §7.4 |
+| **Domain Service** | Stateless service containing domain logic that does not naturally belong to an entity or VO. Here: `OeeCalculatorEngine` (pure math). | `docs/problem-statement.md` §2.3; KB §7.2 |
+| **Downtime** | Any period within the planned production window during which the machine is **not producing**. Split into **planned** (scheduled maintenance, breaks, changeovers planned in the shift template) and **unplanned** (breakdowns, jams, tool failures). | `docs/problem-statement.md` §2.2 |
+| **`DowntimeReason`** | Reference aggregate: catalogue of downtime causes, each with a `DowntimeReasonCode` and a `DowntimeCategory` (`PLANNED` or `UNPLANNED`). Machine error codes are mapped to a `DowntimeReasonCode` by the parser/classifier. | `docs/domain-model.md` |
+| **`DowntimeCategory`** | Enumeration: `PLANNED` (excluded from Availability losses) or `UNPLANNED` (included). | `docs/domain-model.md` |
+| **`DowntimeBreakdown`** | Value Object on `ProductionShift` mapping `DowntimeReasonCode` → `Duration`. Sum of all entries ≤ planned time; invariant enforced. | `docs/domain-model.md` |
+| **Duration** | Immutable Value Object: `Seconds ≥ 0`. Used for downtime, ideal cycle time, and shift length. | `docs/domain-model.md` |
+| **`EmailAddress`** | Value Object with structural validation and lowercase normalization. Owned by `User`. | `docs/domain-model.md`; KB §3.1 |
+| **`F.I.R.S.T.`** | Test principles (*Fast, Independent, Repeatable, Self-Validating, Timely*) satisfied by xUnit domain tests and future integration suites (T6). | KB §14.2 |
+| **`FluentAssertions`** | Assertion library used in unit tests for readable OEE math verification (`result.Oee.Should().BeApproximately(0.75, 0.001)`). | `docs/problem-statement.md` §3 |
+| **`IdealCycleTime`** | Value Object: theoretical minimum time (seconds) to produce one unit, defined per `Machine`. The denominator of Performance. Invariant: `Seconds > 0`. | `docs/problem-statement.md` §2.2 |
+| **`IProductionLogParser`** | Port in the Application layer: `IAsyncEnumerable<ProductionEvent> ParseAsync(Stream, CancellationToken)`. Implemented in Infrastructure by `CsvProductionLogParser`. | `docs/problem-statement.md` §2.1; KB §7.2 |
+| **`LogIngestion`** | Aggregate Root tracking one file upload → parse → compute run. Records file name, row counts (`RowsProcessed`, `RowsRejected`), timestamps, and lifecycle status (`PENDING → PROCESSING → COMPLETED | FAILED`). | `docs/domain-model.md` |
+| **`Machine`** | Aggregate Root representing a production asset: `MachineCode`, `Name`, `IdealCycleTime`, `PlannedShiftDuration`, `IsActive`. Soft deactivation only. | `docs/domain-model.md` |
+| **`MachineCode`** | Value Object: human-readable unique identifier, e.g. `MAQ-01`, `PRESS-B2`. Case-insensitive uniqueness enforced at DB level. | `docs/domain-model.md` |
+| **`OeeCalculatorEngine`** | Pure stateless domain service. Input: `PlannedProductionTime`, `DowntimeTotal`, `TotalParts`, `ApprovedParts`, `IdealCycleTime`. Output: `OeeMetrics`. Deterministic, no I/O, no clock access. | `docs/problem-statement.md` §2.3; KB §7.2 |
+| **OEE (Overall Equipment Effectiveness)** | Composite metric: `Availability × Performance × Quality`. Range [0,1]. World-class benchmark ≈ 0.85. | `docs/problem-statement.md` §1; KB §12 |
+| **`OeeMetrics`** | Immutable Value Object: `Availability`, `Performance`, `Quality`, `GlobalOee` — all `Percentage ∈ [0,1]`. Created only by `OeeCalculatorEngine`. | `docs/domain-model.md`; KB §3.2 |
+| **`OperatingTime`** | `PlannedProductionTime − DowntimeTotal`. Numerator of Availability, denominator of Performance. Not persisted; derived. | `docs/problem-statement.md` §2.3 |
+| **`Percentage`** | Value Object: `Value ∈ [0,1]`, precise to 4 decimal places. Multiplied by 100 only at presentation boundary. | `docs/domain-model.md`; KB §3.1 |
+| **Performance** | OEE pillar: `(TotalParts × IdealCycleTime) / OperatingTime`, clamped to [0,1]. Captures losses from **speed** (running slower than ideal) and micro-stops. | `docs/problem-statement.md` §2.3 |
+| **`PlannedProductionTime`** | The intended production window for a shift, minus explicitly planned stops (breaks, planned maintenance). Sourced from `Machine.PlannedShiftDuration` minus planned entries in `DowntimeBreakdown`. | `docs/problem-statement.md` §2.2 |
+| **`ProductionEvent`** | Immutable domain record emitted by the parser and persisted to `production_events`. Fields: `Timestamp`, `MachineCode`, `Quantity`, `ErrorCode`, `SourceLineNumber`. Not an aggregate root — append-only fact. | `docs/problem-statement.md` §2.1 |
+| **`ProductionShift`** | Aggregate Root holding the computed summary of a shift: `MachineId`, `TimeRange`, `ProductionTotals`, `DowntimeBreakdown`, `OeeMetrics`, `SourceIngestionId`, `RecordedAt`. Immutable after persist; corrections create a new row linked via `SupersededBy`. | `docs/domain-model.md` |
+| **`ProductionTotals`** | Value Object: `TotalParts ≥ ApprovedParts ≥ 0`, `RejectedParts = TotalParts − ApprovedParts`. Invariants enforced at construction. | `docs/domain-model.md` |
+| **Quality** | OEE pillar: `ApprovedParts / TotalParts`, clamped to [0,1] (and to 1.0 when `TotalParts = 0`). Captures losses from **scrap and rework**. | `docs/problem-statement.md` §2.3 |
+| **Reference Aggregate** | An aggregate root that exists primarily as reference data (`DowntimeReason`, `Machine` in relation to `ProductionShift`). Referenced by ID; never embedded. | `docs/domain-model.md`; KB §3.2 |
+| **REST API (Level 2)** | Stateless HTTP API using resource-oriented URIs, standard verbs, correct status codes. `POST /api/v1/logs` (upload), `GET /api/v1/machines/{code}/oee?from=...&to=...`, `GET /api/v1/ingestions/{id}`. | `docs/problem-statement.md` §3; KB §8.2 |
+| **Scrap** | = `RejectedParts`. Not a downtime category — it is a *quality* loss. Tracked separately from `DowntimeBreakdown`. | `docs/problem-statement.md` §2.3 |
+| **`ShiftId`** | Value Object: typed identifier (UUID) for `ProductionShift`. Distinct from any business concept — purely a technical identity. | `docs/domain-model.md` |
+| **Soft Deactivation** | Safe lifecycle transition on `Machine`, `DowntimeReason`, `User`: `activate()`/`deactivate()` sets `IsActive = false` without deleting the row, preserving historical FKs. | `docs/domain-model.md`; KB §3.2 |
+| **`TimeRange`** | Value Object: `(Start, End)` with invariant `Start < End`. Used for shift window. | `docs/domain-model.md` |
+| **`User`** | Aggregate Root: `UserId`, `EmailAddress`, `PasswordHash`, `DisplayName`, `Role`, `IsActive`. Baseline ships without auth wiring (ADR-0002). | `docs/domain-model.md` |
+| **`UserRole`** | Enumeration: `OPERATOR`, `ENGINEER`, `ADMINISTRATOR`. Enforced at API boundary in T2. | `docs/domain-model.md`; `docs/context.md` §3 |
+| **xUnit + FluentAssertions** | Test stack. Domain tests cover OEE math edge cases: zero produced, negative downtime rejected, clamping behavior, `ProductionTotals` invariants. | `docs/problem-statement.md` §3; KB §14.1 |
