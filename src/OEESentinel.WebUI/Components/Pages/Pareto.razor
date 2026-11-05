@@ -1,0 +1,67 @@
+@page "/machines/{Code}/pareto"
+@rendermode InteractiveServer
+@inject IGetDowntimeParetoHandler Handler
+
+<PageTitle>Pareto — @Code</PageTitle>
+
+<h1>Downtime Pareto — @Code</h1>
+
+@if (_error is not null)
+{
+    <div class="alert alert-warning">@_error</div>
+}
+else if (_dto is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_dto.Entries.Count == 0)
+{
+    <p class="text-muted">No downtime recorded in this window.</p>
+}
+else
+{
+    <p><strong>Total downtime:</strong> @(TimeSpan.FromSeconds(_dto.TotalDowntimeSeconds).ToString(@"hh\:mm\:ss")) across @_dto.TotalShifts shifts</p>
+
+    <table class="table">
+        <thead><tr><th>Rank</th><th>Reason</th><th>Category</th><th>Duration</th><th>Share</th></tr></thead>
+        <tbody>
+            @for (var i = 0; i < _dto.Entries.Count; i++)
+            {
+                var e = _dto.Entries[i];
+                <tr>
+                    <td>@(i + 1)</td>
+                    <td><strong>@e.ReasonCode</strong><br/><small class="text-muted">@e.Description</small></td>
+                    <td><span class="badge bg-@(e.Category == "PLANNED" ? "info" : "warning")">@e.Category</span></td>
+                    <td>@(TimeSpan.FromSeconds(e.Seconds).ToString(@"hh\:mm\:ss"))</td>
+                    <td>
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar" style="width: @((e.Percentage * 100).ToString("F1"))%;">
+                                @((e.Percentage * 100).ToString("F1"))%
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = "";
+    private DowntimeParetoDto? _dto;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            var to = DateTimeOffset.UtcNow;
+            var from = to.AddDays(-30);
+            _dto = await Handler.HandleAsync(new GetDowntimeParetoQuery(new MachineCode(Code), from, to), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

@@ -1,0 +1,72 @@
+@page "/machines/{Code}"
+@rendermode InteractiveServer
+@inject IGetMachineOeeHandler OeeHandler
+@inject IGetDowntimeParetoHandler ParetoHandler
+
+<PageTitle>Machine @Code</PageTitle>
+
+<h1>Machine @Code</h1>
+
+<div class="mb-3">
+    <label>Window:</label>
+    <select @bind="_days" @bind:after="Reload">
+        <option value="7">Last 7 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+    </select>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-warning">@_error</div>
+}
+else if (_oee is not null)
+{
+    <div class="row g-3 mb-4">
+        <div class="col-md-3"><div class="card"><div class="card-body">
+            <h6 class="text-muted">Availability</h6>
+            <h3>@((_oee.Availability * 100).ToString("F1"))%</h3>
+        </div></div></div>
+        <div class="col-md-3"><div class="card"><div class="card-body">
+            <h6 class="text-muted">Performance</h6>
+            <h3>@((_oee.Performance * 100).ToString("F1"))%</h3>
+        </div></div></div>
+        <div class="col-md-3"><div class="card"><div class="card-body">
+            <h6 class="text-muted">Quality</h6>
+            <h3>@((_oee.Quality * 100).ToString("F1"))%</h3>
+        </div></div></div>
+        <div class="col-md-3"><div class="card bg-primary text-white"><div class="card-body">
+            <h6>OEE</h6>
+            <h3>@((_oee.Oee * 100).ToString("F1"))%</h3>
+        </div></div></div>
+    </div>
+
+    <p><small>@_oee.ShiftsIncluded shifts · @_oee.Totals.TotalParts parts total</small></p>
+
+    <a class="btn btn-outline-secondary" href="/machines/@Code/pareto">View Pareto →</a>
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = "";
+    private int _days = 7;
+    private MachineOeeAggregateDto? _oee;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync() => await Reload();
+
+    private async Task Reload()
+    {
+        _error = null;
+        _oee = null;
+        try
+        {
+            var to = DateTimeOffset.UtcNow;
+            var from = to.AddDays(-_days);
+            _oee = await OeeHandler.HandleAsync(new GetMachineOeeQuery(new MachineCode(Code), from, to), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

@@ -1,0 +1,19 @@
+@switch (Status)
+{
+    case "COMPLETED":
+        <span class="badge bg-success">@Status</span>
+        break;
+    case "FAILED":
+        <span class="badge bg-danger">@Status</span>
+        break;
+    case "PROCESSING":
+        <span class="badge bg-warning text-dark">@Status</span>
+        break;
+    default:
+        <span class="badge bg-secondary">@Status</span>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public string Status { get; set; } = "";
+}

@@ -1,62 +1,73 @@
 ﻿@page "/"
+@rendermode InteractiveServer
 @inject IListMachinesHandler MachinesHandler
+@inject IListRecentIngestionsHandler IngestionsHandler
 
-<PageTitle>OEE Sentinel - Dashboard</PageTitle>
+<PageTitle>OEE Sentinel</PageTitle>
 
-<div class="container mt-4">
-    <h1 class="mb-4">OEE Sentinel Dashboard</h1>
-    
-    <div class="card">
-        <div class="card-header bg-primary text-white">
-            <h4 class="mb-0">Active Production Machines</h4>
-        </div>
-        <div class="card-body">
-            @if (machines == null)
-            {
-                <p><em>Loading machines from database...</em></p>
-            }
-            else if (!machines.Any())
-            {
-                <p>No active machines found.</p>
-            }
-            else
-            {
-                <table class="table table-striped table-hover">
-                    <thead>
-                        <tr>
-                            <th>Code</th>
-                            <th>Name</th>
-                            <th>Ideal Cycle (s)</th>
-                            <th>Planned Shift (h)</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var machine in machines)
-                        {
-                            <tr>
-                                <td><strong>@machine.Code</strong></td>
-                                <td>@machine.Name</td>
-                                <td>@machine.IdealCycleSeconds s</td>
-                                <td>@(machine.PlannedShiftSeconds / 3600) h</td>
-                                <td>
-                                    <span class="badge bg-success">Active</span>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
-        </div>
+<h1>OEE Sentinel</h1>
+<p class="lead">Post-hoc production log analytics for legacy manufacturing machines.</p>
+
+<h3 class="mt-4">Machines</h3>
+@if (_machines.Count == 0)
+{
+    <p class="text-muted">No machines configured.</p>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var m in _machines)
+        {
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">@m.Code</h5>
+                        <p class="card-text text-muted">@m.Name</p>
+                        <a class="btn btn-sm btn-outline-primary" href="/machines/@m.Code">View OEE →</a>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
-</div>
+}
+
+<h3 class="mt-5">Recent Ingestions</h3>
+@if (_ingestions.Count == 0)
+{
+    <p class="text-muted">No ingestions yet. <a href="/upload">Upload a log</a>.</p>
+}
+else
+{
+    <table class="table table-sm">
+        <thead><tr><th>Uploaded</th><th>Machine</th><th>Status</th><th>Processed</th></tr></thead>
+        <tbody>
+            @foreach (var i in _ingestions.Take(5))
+            {
+                <tr>
+                    <td>@i.UploadedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>@i.MachineCode</td>
+                    <td><IngestionStatusBadge Status="@i.Status" /></td>
+                    <td>@i.RowsProcessed</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <a href="/ingestions">View all →</a>
+}
 
 @code {
-    private IReadOnlyList<MachineDto>? machines;
+    private List<MachineDto> _machines = new();
+    private IReadOnlyList<LogIngestionDto> _ingestions = Array.Empty<LogIngestionDto>();
 
     protected override async Task OnInitializedAsync()
     {
-        // Chamada in-process ao Handler (sem passar pelo HTTP)
-        machines = await MachinesHandler.HandleAsync(new ListMachinesQuery());
+        try
+        {
+            var machines = await MachinesHandler.HandleAsync(new ListMachinesQuery(), CancellationToken.None);
+            _machines = machines.ToList();
+
+            _ingestions = await IngestionsHandler.HandleAsync(new ListRecentIngestionsQuery(5), CancellationToken.None);
+        }
+        catch { /* swallow on home page */ }
     }
 }

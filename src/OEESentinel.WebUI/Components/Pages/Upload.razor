@@ -1,0 +1,141 @@
+@page "/upload"
+@rendermode InteractiveServer
+@inject IProcessLogFileHandler ProcessHandler
+@inject IListMachinesHandler MachinesHandler
+@inject NavigationManager Nav
+
+<PageTitle>Upload Log — OEE Sentinel</PageTitle>
+
+<h1>Upload Production Log</h1>
+
+@if (_result is not null)
+{
+    <div class="alert alert-success">
+        <h4 class="alert-heading">
+            Upload complete — <IngestionStatusBadge Status="@_result.Status" />
+        </h4>
+        <p class="mb-1">Processed: <strong>@_result.RowsProcessed</strong> · Rejected: <strong>@_result.RowsRejected</strong></p>
+        <p class="mb-0">Redirecting to shift detail…</p>
+    </div>
+}
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">
+        <h4 class="alert-heading">Upload failed</h4>
+        <p class="mb-0">@_error</p>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <label class="form-label">Machine</label>
+        <select class="form-select" @bind="_selectedMachineCode">
+            <option value="">— select machine —</option>
+            @foreach (var m in _machines)
+            {
+                <option value="@m.Code">@m.Code — @m.Name</option>
+            }
+        </select>
+    </div>
+
+    <div class="col-md-3">
+        <label class="form-label">Window start (UTC)</label>
+        <input type="datetime-local" class="form-control" @bind="_windowStart" />
+    </div>
+
+    <div class="col-md-3">
+        <label class="form-label">Window end (UTC)</label>
+        <input type="datetime-local" class="form-control" @bind="_windowEnd" />
+    </div>
+
+    <div class="col-12">
+        <label class="form-label">Log file (CSV/TXT)</label>
+        <InputFile OnChange="OnFileSelected" class="form-control" />
+        @if (_file is not null)
+        {
+            <small class="text-muted">Selected: @_file.Name (@_file.Size bytes)</small>
+        }
+    </div>
+
+    <div class="col-12">
+        <button class="btn btn-primary" @onclick="UploadAsync" disabled="@(_busy || !CanUpload)">
+            @(_busy ? "Uploading…" : "Upload")
+        </button>
+    </div>
+</div>
+
+@code {
+    private List<MachineDto> _machines = new();
+    private string _selectedMachineCode = "";
+    private DateTime _windowStart = new(2026, 11, 4, 8, 0, 0, DateTimeKind.Utc);
+    private DateTime _windowEnd   = new(2026, 11, 4, 16, 0, 0, DateTimeKind.Utc);
+    private IBrowserFile? _file;
+    private LogUploadResponse? _result;
+    private string? _error;
+    private bool _busy;
+
+    private bool CanUpload =>
+        !string.IsNullOrEmpty(_selectedMachineCode)
+        && _file is not null
+        && _windowStart < _windowEnd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var list = await MachinesHandler.HandleAsync(new ListMachinesQuery(), CancellationToken.None);
+            _machines = list.ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _file = e.File;
+        _result = null;
+        _error = null;
+    }
+
+    private async Task UploadAsync()
+    {
+        if (_file is null || string.IsNullOrEmpty(_selectedMachineCode)) return;
+
+        _busy = true;
+        _result = null;
+        _error = null;
+
+        try
+        {
+            await using var stream = _file.OpenReadStream(maxAllowedSize: 50_000_000);
+
+            var cmd = new ProcessLogFileCommand(
+                new MachineCode(_selectedMachineCode),
+                new TimeRange(
+                    new DateTimeOffset(DateTime.SpecifyKind(_windowStart, DateTimeKind.Utc)),
+                    new DateTimeOffset(DateTime.SpecifyKind(_windowEnd, DateTimeKind.Utc))),
+                _file.Name,
+                stream,
+                DateTimeOffset.UtcNow);
+
+                _result = await ProcessHandler.HandleAsync(cmd, CancellationToken.None);
+                _file = null;
+
+                if (!string.IsNullOrEmpty(_selectedMachineCode) && _result.ProductionShiftId != Guid.Empty)
+                {
+                    Nav.NavigateTo($"/machines/{_selectedMachineCode}/shifts/{_result.ProductionShiftId}");
+                }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
