@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OEESentinel.Domain.Entities;
+using OEESentinel.Infrastructure.Persistence.Entities;
 
 namespace OEESentinel.Infrastructure.Persistence;
 
@@ -14,4 +15,9 @@ public class OEESentinelDbContext : DbContext
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OEESentinelDbContext).Assembly);
     }
+
+    public DbSet<DowntimeReason> DowntimeReasons => Set<DowntimeReason>();
+    public DbSet<LogIngestion> LogIngestions => Set<LogIngestion>();
+    public DbSet<ProductionShift> ProductionShifts => Set<ProductionShift>();
+    public DbSet<ProductionEventRow> ProductionEvents => Set<ProductionEventRow>();
 }
