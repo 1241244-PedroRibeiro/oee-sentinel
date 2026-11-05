@@ -1,27 +1,32 @@
-﻿namespace OEESentinel.Domain.Entities;
+﻿using OEESentinel.Domain.ValueObjects;
+
+namespace OEESentinel.Domain.Entities;
 
 public class Machine
 {
     public Guid Id { get; private set; }
-    public string Code { get; private set; } = string.Empty;
+    public MachineCode Code { get; private set; } = null!;
     public string Name { get; private set; } = string.Empty;
-
-    // Tempo teórico ideal para produzir 1 unidade (em segundos)
-    public double IdealCycleTimeSeconds { get; private set; }
+    public IdealCycleTime IdealCycleTime { get; private set; } = null!;
+    public Duration PlannedShiftDuration { get; private set; } = null!;
+    public bool IsActive { get; private set; }
 
     private Machine() { } // Para o EF Core
 
-    public Machine(string code, string name, double idealCycleTimeSeconds)
+    public Machine(MachineCode code, string name, IdealCycleTime idealCycleTime, Duration plannedShiftDuration)
     {
-        if (string.IsNullOrWhiteSpace(code))
-            throw new ArgumentException("O código da máquina é obrigatório.", nameof(code));
-
-        if (idealCycleTimeSeconds <= 0)
-            throw new ArgumentException("O tempo de ciclo ideal deve ser superior a zero.", nameof(idealCycleTimeSeconds));
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Name is required.", nameof(name));
 
         Id = Guid.NewGuid();
-        Code = code.Trim().ToUpperInvariant();
+        Code = code;
         Name = name.Trim();
-        IdealCycleTimeSeconds = idealCycleTimeSeconds;
+        IdealCycleTime = idealCycleTime;
+        PlannedShiftDuration = plannedShiftDuration;
+        IsActive = true;
     }
+
+    // Soft Deactivation
+    public void Deactivate() => IsActive = false;
+    public void Activate() => IsActive = true;
 }
