@@ -241,7 +241,7 @@ The handler **must not** let an exception escape as `500` — it should catch `N
 - **Application test:** `HealthHandlerTests` — 2 cases: DB reachable → 200; DB unreachable (mocked `CanConnectAsync` or `ExecuteSqlRawAsync` throwing) → 503.
 - **Integration test (deferred T6):** `WebApplicationFactory<Program>` with a real PostgreSQL container (Testcontainers); assert 200. Stop the container; assert 503.
 - **Docker Compose test:** `docker compose up -d` → wait 30 s → `docker compose ps` shows `healthy`. `docker compose stop postgres` → wait ~30 s → `webui` shows `unhealthy`.
-- **Demo:** `curl http://localhost:5000/api/v1/health` → 200; `docker compose stop postgres` → `curl` → 503.
+- **Demo:** `curl http://localhost:5278/api/v1/health` → 200; `docker compose stop postgres` → `curl` → 503.
 
 #### 1.7.8. Open questions / deferred
 

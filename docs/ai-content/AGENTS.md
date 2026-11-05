@@ -2102,7 +2102,7 @@ All request DTOs are validated at the boundary by a minimal-API `IEndpointFilter
 - **Version:** `0.1.0-baseline`
 - **License:** MIT
 - **Servers:**
-  - `http://localhost:5000` — Local development (`dotnet run`)
+  - `http://localhost:5278` — Local development (`dotnet run`)
   - `http://localhost:8080` — Docker Compose
   - `https://{plantHost}` — Production plant deployment (variable `plantHost`)
 
@@ -2231,8 +2231,8 @@ The baseline (`v0.1.0-baseline`) ships:
 | Compilation | `dotnet build` succeeds with 0 warnings |
 | Unit tests | `dotnet test` passes in < 5 s |
 | Migrations | `dotnet ef database update` applies cleanly on a fresh DB |
-| REST API | `curl http://localhost:5000/api/v1/health` returns 200 |
-| Blazor dashboard | `dotnet run --project src/OEESentinel.WebUI` opens on http://localhost:5000 |
+| REST API | `curl http://localhost:5278/api/v1/health` returns 200 |
+| Blazor dashboard | `dotnet run --project src/OEESentinel.WebUI` opens on http://localhost:5278 |
 | Sample ingestion | Seed pre-ingests `docs/samples/sample_shift.csv`; dashboard shows the shift |
 | BYOP compliance | README, LICENSE, `.env.example`, `ROADMAP.md`, `samples/` present |
 

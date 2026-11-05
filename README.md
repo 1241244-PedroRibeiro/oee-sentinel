@@ -48,7 +48,7 @@ dotnet ef database update \
 dotnet run --project src/OEESentinel.WebUI
 ```
 
-Then open **http://localhost:5000**.
+Then open **http://localhost:5278**.
 
 ### Run the tests
 
