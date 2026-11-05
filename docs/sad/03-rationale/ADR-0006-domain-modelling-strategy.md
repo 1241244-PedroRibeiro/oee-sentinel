@@ -38,6 +38,7 @@ We adopt three interlocking domain-modelling policies:
 - **`ProductionTotals`** — `(int TotalParts ≥ ApprovedParts ≥ 0)`. `RejectedParts` is a **computed** property (`TotalParts - ApprovedParts`), not a constructor parameter. This eliminates the "totals are inconsistent" bug class entirely.
 - **`OeeMetrics`** — `(Percentage Availability, Percentage Performance, Percentage Quality, Percentage GlobalOee)`. **Factory method only:** `OeeMetrics.CreateFromCalculation(...)`. There is **no public constructor** that accepts arbitrary values. The invariants are preserved by construction.
 - **`MachineCode`**, **`EmailAddress`**, **`DowntimeReasonCode`**, **`IngestionId`** — validated identifiers.
+- **Observations**: "Percentage preserves full double precision internally. Rounding to 4 decimal places is applied only at (a) the DTO boundary (OeeMetricsDto.FromDomain), and (b) the database persistence layer (NUMERIC(5,4)). Rounding inside the Percentage constructor would break the OEE = A × P × Q invariant, because the product of independently-rounded pillars differs from the rounded product."
 
 All Value Objects are declared as **C# `record` types** for structural equality and value semantics, with constructors that validate in `init` (or in a static factory method). None of them is mutable after construction.
 

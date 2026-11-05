@@ -2,46 +2,48 @@
 
 namespace OEESentinel.Domain.Services;
 
-public class OeeCalculatorEngine
+public static class OeeCalculatorEngine
 {
-    public OeeMetrics Calculate(
-        TimeSpan plannedProductionTime,
-        TimeSpan totalDowntime,
-        int totalProducedUnits,
-        int goodUnits,
-        double idealCycleTimeSeconds)
+    public static OeeMetrics Calculate(
+        Duration plannedProductionTime,
+        Duration totalDowntime,
+        ProductionTotals totals,
+        IdealCycleTime idealCycleTime)
     {
-        if (plannedProductionTime <= TimeSpan.Zero)
-            throw new ArgumentException("O tempo planeado de produção deve ser superior a zero.", nameof(plannedProductionTime));
+        // Edge Case 1: Corrupção de dados (ADR-0006 §Decision.3)
+        if (totalDowntime.Seconds > plannedProductionTime.Seconds)
+            throw new ArgumentOutOfRangeException(nameof(totalDowntime), "Downtime cannot exceed planned time.");
 
-        if (totalProducedUnits < 0)
-            throw new ArgumentException("O total de unidades produzidas não pode ser negativo.", nameof(totalProducedUnits));
+        double operatingSeconds = plannedProductionTime.Seconds - totalDowntime.Seconds;
 
-        if (goodUnits < 0 || goodUnits > totalProducedUnits)
-            throw new ArgumentException("Unidades boas não podem ser negativas nem exceder o total produzido.", nameof(goodUnits));
-
-        if (idealCycleTimeSeconds <= 0)
-            throw new ArgumentException("O tempo de ciclo ideal deve ser positivo.", nameof(idealCycleTimeSeconds));
-
-        // 1. Disponibilidade = Tempo Operacional Real / Tempo Planeado
-        var operatingTime = plannedProductionTime - totalDowntime;
-        if (operatingTime < TimeSpan.Zero)
-            operatingTime = TimeSpan.Zero;
-
-        double availability = operatingTime.TotalSeconds / plannedProductionTime.TotalSeconds;
-
-        // 2. Performance = (Total Peças * Tempo Ciclo Ideal) / Tempo Operacional
-        double performance = 0.0;
-        if (operatingTime.TotalSeconds > 0)
+        // Edge Case 2: Zero operating time
+        if (operatingSeconds == 0)
         {
-            performance = (totalProducedUnits * idealCycleTimeSeconds) / operatingTime.TotalSeconds;
+            return OeeMetrics.Create(
+                Percentage.Zero, 
+                Percentage.Zero, 
+                totals.TotalParts > 0 ? Percentage.Zero : Percentage.One); // Qualidade neutra se nada foi produzido
         }
 
-        // 3. Qualidade = Peças Boas / Peças Totais
-        double quality = totalProducedUnits > 0
-            ? (double)goodUnits / totalProducedUnits
-            : 0.0;
+        // 1. Disponibilidade = Tempo Operacional / Tempo Planeado
+        double availability = operatingSeconds / plannedProductionTime.Seconds;
 
-        return new OeeMetrics(availability, performance, quality);
+        // 2. Performance = (Total Peças * Tempo Ciclo Ideal) / Tempo Operacional
+        double performance = (totals.TotalParts * idealCycleTime.Seconds) / operatingSeconds;
+        
+        // Edge Case 3: Performance > 1 (Clamp defensivo)
+        if (performance > 1.0) performance = 1.0;
+
+        // 3. Qualidade = Peças Boas / Peças Totais
+        // Edge Case 4: TotalParts == 0 -> Qualidade = 1.0 (neutra)
+        double quality = totals.TotalParts > 0 
+            ? (double)totals.ApprovedParts / totals.TotalParts 
+            : 1.0;
+
+        return OeeMetrics.Create(
+            new Percentage(availability),
+            new Percentage(performance),
+            new Percentage(quality)
+        );
     }
 }

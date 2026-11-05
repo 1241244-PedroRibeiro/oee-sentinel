@@ -2,21 +2,23 @@
 
 public sealed record OeeMetrics
 {
-    public double Availability { get; }
-    public double Performance { get; }
-    public double Quality { get; }
-    public double OverallOee { get; }
+    public Percentage Availability { get; }
+    public Percentage Performance { get; }
+    public Percentage Quality { get; }
+    public Percentage OverallOee { get; }
 
-    public OeeMetrics(double availability, double performance, double quality)
+    private OeeMetrics(Percentage availability, Percentage performance, Percentage quality)
     {
-        Availability = Math.Clamp(availability, 0.0, 1.0);
-        Performance = Math.Clamp(performance, 0.0, 1.0);
-        Quality = Math.Clamp(quality, 0.0, 1.0);
-        OverallOee = Math.Round(Availability * Performance * Quality, 4);
+        Availability = availability;
+        Performance = performance;
+        Quality = quality;
+        // Calculado a partir dos Value Objects
+        OverallOee = new Percentage(availability.Value * performance.Value * quality.Value);
     }
 
-    public double AvailabilityPercentage => Math.Round(Availability * 100, 2);
-    public double PerformancePercentage => Math.Round(Performance * 100, 2);
-    public double QualityPercentage => Math.Round(Quality * 100, 2);
-    public double OverallOeePercentage => Math.Round(OverallOee * 100, 2);
+    // Apenas o OeeCalculatorEngine pode chamar isto
+    public static OeeMetrics Create(Percentage availability, Percentage performance, Percentage quality)
+    {
+        return new OeeMetrics(availability, performance, quality);
+    }
 }
