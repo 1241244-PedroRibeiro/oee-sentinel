@@ -1,6 +1,6 @@
-# Knowledge Base: OEE-Sentinel — Industrial Production Log Analysis & OEE Engine (Master Edition v1.0)
+# Knowledge Base: OEE-Sentinel — Industrial Production Log Analysis & OEE Engine (Master Edition v1.1)
 
-> **Metadata:** Version 1.0 (Master) | Domain: Industrial analytics, DDD, Clean Architecture, Blazor Server, PostgreSQL, .NET 10 | Academic Year: 2026/2027 | Last updated: November 2026
+> **Metadata:** Version 1.1 (Master) | Domain: Industrial analytics, DDD, Clean Architecture, Blazor Server, PostgreSQL, .NET 10 | Academic Year: 2026/2027 | Last updated: November 2026
 >
 > **Repository:** `oee-sentinel`
 >
@@ -577,6 +577,7 @@ The seven baseline ADRs are summarised below for in-context reference. Their ful
 1. **Value Objects** are the unit of validation and immutability: `Percentage`, `Duration`, `IdealCycleTime`, `TimeRange`, `ProductionTotals`, `OeeMetrics`, `MachineCode`, `EmailAddress`, `DowntimeReasonCode`, `IngestionId`. All are C# `record` types with constructors that validate. `RejectedParts` is a **computed** property, not a constructor parameter — eliminates the "totals are inconsistent" bug class.
 2. **`ProductionShift` is an immutable fact.** No public setters, no `Update` method. Once persisted, never updated (except `SupersededBy` — the single exception, for audit-preserving correction). Corrections create a new `ProductionShift` with `SupersededBy = oldShift.Id`.
 3. **`OeeCalculatorEngine` is a pure domain service.** `static` method, no `async`, no I/O, no clock access, no DI. Edge-case policy: `planned == 0` and `downtime > planned` throw; `operating == 0` and `TotalParts == 0` clamp to neutral; `Performance > 1` clamps to 1.0; all four outputs clamped to `[0,1]`.
+4. **"Percentage preserves full double precision internally**. Rounding to 4 decimal places is applied only at (a) the DTO boundary (OeeMetricsDto.FromDomain), and (b) the database persistence layer (NUMERIC(5,4)). Rounding inside the Percentage constructor would break the OEE = A × P × Q invariant, because the product of independently-rounded pillars differs from the rounded product."
 
 **Why it matters.** The OEE math is verified by the compiler and the tests, not by the caller. `ProductionShift` is safe to cache, memoise, and serialize. Corrections preserve history. `ApprovedParts ≤ TotalParts` cannot be violated.
 
@@ -1668,7 +1669,7 @@ Seeded only in `Development` with `SeedData:Enabled = true`. All values are fict
 
 Passwords are Argon2id hashes of a documented demo password (`Demo#2026!`) — the hash is seeded as a constant, never the plaintext.
 
-**Sample ingestion:** `samples/sample_shift.csv` (fictitious, ~50 rows) is pre-ingested via `BaselineSeed` in `Development`. The resulting `ProductionShift` appears on the dashboard immediately.
+**Sample ingestion:** `docs/samples/sample_shift.csv` (fictitious, ~50 rows) is pre-ingested via `BaselineSeed` in `Development`. The resulting `ProductionShift` appears on the dashboard immediately.
 
 ---
 
@@ -2132,7 +2133,9 @@ All request DTOs are validated at the boundary by a minimal-API `IEndpointFilter
 
 ## 27. Automated Testing Strategy
 
-### 27.1. Test Pyramid (per ADR-0007)
+### 27.1. Test Pyramid (per ADR-0007 and `docs/sad/09-testing-strategy.md`)
+
+> **See:** `docs/sad/09-testing-strategy.md` for the practical, operational guide of this section.
 
 | Level | Tool | Scope | Speed |
 |---|---|---|---|
@@ -2219,7 +2222,7 @@ The baseline (`v0.1.0-baseline`) ships:
 - **Application layer:** `ProcessLogFileHandler` orchestrating upload → parse → compute → persist; `GetMachineOeeHandler`, `GetMachineShiftHandler`, `ListMachineShiftsHandler`, `GetDowntimeParetoHandler`, `ListRecentIngestionsHandler`.
 - **Infrastructure layer:** `CsvProductionLogParser` (streaming, `IAsyncEnumerable`), `OEESentinelDbContext` (EF Core / PostgreSQL), initial migration, five EF Core repositories, bulk-insert adapter.
 - **WebUI layer:** upload page, machine dashboard with OEE gauges (`Chart.js`), Pareto chart, ingestion history page, REST endpoints per `docs/api/openapi.yaml`, health probe.
-- **DevOps:** `docker-compose.yml` (PostgreSQL), README, LICENSE (MIT), `.env.example`, `samples/sample_shift.csv`.
+- **DevOps:** `docker-compose.yml` (PostgreSQL), README, LICENSE (MIT), `.env.example`, `docs/samples/sample_shift.csv`.
 
 ### 29.2. Deliverable Verification
 
@@ -2230,7 +2233,7 @@ The baseline (`v0.1.0-baseline`) ships:
 | Migrations | `dotnet ef database update` applies cleanly on a fresh DB |
 | REST API | `curl http://localhost:5000/api/v1/health` returns 200 |
 | Blazor dashboard | `dotnet run --project src/OEESentinel.WebUI` opens on http://localhost:5000 |
-| Sample ingestion | Seed pre-ingests `samples/sample_shift.csv`; dashboard shows the shift |
+| Sample ingestion | Seed pre-ingests `docs/samples/sample_shift.csv`; dashboard shows the shift |
 | BYOP compliance | README, LICENSE, `.env.example`, `ROADMAP.md`, `samples/` present |
 
 ### 29.3. Submission Tag
@@ -2251,7 +2254,7 @@ Getting OEE-Sentinel from skeleton to a runnable, testable baseline with a real 
 | P0-1 | Domain core: `OeeMetrics`, `Percentage`, `Duration`, `ProductionTotals`, `ProductionShift`, `OeeCalculatorEngine` | Fully tested value objects + calculator | 3.0h |
 | P0-2 | Domain entities: `Machine`, `DowntimeReason`, `LogIngestion`, `User` + repositories interfaces | ARs + ports | 2.0h |
 | P0-3 | Unit tests: happy path + edge cases (zero produced, downtime > planned, clamping) | xUnit + FluentAssertions, ≥ 25 tests | 2.0h |
-| P0-4 | `CsvProductionLogParser` (streaming, `IAsyncEnumerable<ProductionEvent>`) + canonical sample | Adapter + `samples/sample_shift.csv` | 2.0h |
+| P0-4 | `CsvProductionLogParser` (streaming, `IAsyncEnumerable<ProductionEvent>`) + canonical sample | Adapter + `docs/samples/sample_shift.csv` | 2.0h |
 | P0-5 | EF Core `DbContext`, value object mappings (`OwnsOne`), initial migration | Schema in PostgreSQL, `production_events` bulk-ready | 2.0h |
 | P0-6 | `ProcessLogFileCommand` + handler (parse → compute → persist) | Application layer wired | 1.5h |
 | P0-7 | REST API: `POST /api/v1/logs`, `GET /api/v1/machines/{code}/oee` | Controllers + DTOs + OpenAPI annotations | 1.0h |
@@ -2451,7 +2454,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: oee_sentinel
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -2561,6 +2564,8 @@ oee-sentinel/
 │   └── workflows/
 │       └── ci.yml                          # CI pipeline (T8)
 ├── docs/
+│   ├── ai-content/
+│   │   └── AGENTS.md                       # This knowledge base
 │   ├── api/
 │   │   └── openapi.yaml                    # Authoritative REST contract
 │   ├── architecture/
@@ -2591,13 +2596,30 @@ oee-sentinel/
 │   │   ├── 05-key-scenarios.md
 │   │   ├── 06-api-design-specification.md
 │   │   ├── 07-relational-mapping-and-persistence-strategy.md
-│   │   └── 08-database-structure.md
+│   │   ├── 08-database-structure.md
+│   │   └── 09-testing-strategy.md          # New (v1.1)
+│   ├── samples/
+│   │   └── sample_shift.csv                # New (v1.1) - Test data
 │   ├── user-stories/
+│   │   ├── LOG-01/
+│   │   │   └── requirements.md
+│   │   ├── LOG-02/
+│   │   │   └── requirements.md
+│   │   ├── MACH-01/
+│   │   │   └── requirements.md
+│   │   ├── OBS-01/
+│   │   │   └── requirements.md
+│   │   ├── OEE-01/
+│   │   │   └── requirements.md
+│   │   ├── OEE-02/
+│   │   │   └── requirements.md
+│   │   ├── OEE-03/
+│   │   │   └── requirements.md
 │   │   └── README.md
 │   └── glossary.md
 ├── src/
 │   ├── OEESentinel.Domain/
-│   │   ├── Entities/
+│   │   ├── Entities/                       # Fixed path (v1.1)
 │   │   │   ├── Machine.cs
 │   │   │   ├── ProductionShift.cs
 │   │   │   ├── LogIngestion.cs
@@ -2618,6 +2640,7 @@ oee-sentinel/
 │   │   └── OEESentinel.Domain.csproj
 │   ├── OEESentinel.Application/
 │   │   ├── Handlers/
+│   │   │   ├── .gitkeep
 │   │   │   ├── ProcessLogFileHandler.cs
 │   │   │   ├── GetMachineOeeHandler.cs
 │   │   │   ├── GetMachineShiftHandler.cs
@@ -2626,17 +2649,22 @@ oee-sentinel/
 │   │   │   └── ListRecentIngestionsHandler.cs
 │   │   ├── Ports/
 │   │   │   ├── Inbound/
+│   │   │   │   └── .gitkeep
 │   │   │   └── Outbound/
+│   │   │       └── .gitkeep
 │   │   ├── Dtos/
+│   │   │   └── .gitkeep
 │   │   └── OEESentinel.Application.csproj
 │   ├── OEESentinel.Infrastructure/
 │   │   ├── Persistence/
 │   │   │   ├── OEESentinelDbContext.cs
 │   │   │   ├── Configurations/
 │   │   │   ├── Repositories/
+│   │   │   │   └── .gitkeep
 │   │   │   ├── Migrations/
 │   │   │   └── Seeding/
 │   │   ├── Parsing/
+│   │   │   ├── .gitkeep
 │   │   │   └── CsvProductionLogParser.cs
 │   │   └── OEESentinel.Infrastructure.csproj
 │   └── OEESentinel.WebUI/
@@ -2660,12 +2688,10 @@ oee-sentinel/
 │       ├── Application/
 │       ├── Fakes/
 │       └── OEESentinel.UnitTests.csproj
-├── samples/
-│   └── sample_shift.csv
-├── docker-compose.yml
+├── docker-compose.yml                      # New (v1.1)
 ├── Dockerfile                              # (baseline: src/OEESentinel.WebUI/Dockerfile)
 ├── Makefile                                # (optional — CI commands)
-├── .env.example
+├── .env.example                            # New (v1.1)
 ├── .gitignore
 ├── .editorconfig
 ├── LICENSE
@@ -2681,6 +2707,7 @@ oee-sentinel/
 | Version | Date | Scope | Key Additions |
 |---|---|---|---|
 | **v1.0** | November 2026 | Master baseline | Full consolidation of all source artifacts. 7 ADRs (ADR-0001 through ADR-0007), 5 aggregates, 6 handlers, 7 tables, 5 endpoints (6 operations), 7 baseline user stories, 8 planned user stories, roadmap T1–T8. |
+| **v1.1** | November 2026 | Operational readiness & scaffolding | Added `docs/sad/09-testing-strategy.md`, `docs/samples/sample_shift.csv`, `docker-compose.yml`, `.env.example`. Fixed the `Entities` folder path (removed accent). Added `.gitkeep` files to scaffold the Clean Architecture directories. |
 | *(planned v2.0)* | *(after T1+T2)* | Post-auth + reporting | Will add ADR-0008 (PDF), ADR-0009 (JWT), new aggregates (none — additive only), new user stories, updated DTO contracts. |
 | *(planned v3.0)* | *(after T3–T8)* | Complete roadmap | Will add all remaining ADRs, expanded test strategy (integration), Prometheus metrics documentation, BenchmarkDotNet results, SAD. |
 
@@ -2728,11 +2755,11 @@ Per academic integrity requirements, the team discloses AI usage:
 | §15 Use Cases | `docs/architecture/use-case-diagram.md` |
 | §16–§20 Persistence | `docs/sad/07-relational-mapping-and-persistence-strategy.md`; `docs/sad/08-database-structure.md`; ADR-0003; ADR-0006 |
 | §21–§26 API | `docs/sad/06-api-design-specification.md`; `docs/api/openapi.yaml` |
-| §27–§28 Testing | ADR-0007 |
+| §27–§28 Testing | ADR-0007; `docs/sad/09-testing-strategy.md` |
 | §29 Baseline Status | `README.md`; `ROADMAP.md` Phase 0 |
 | §30 Roadmap | `ROADMAP.md` T1–T8 |
 | §31 Frontend | `docs/architecture/frontend-implementation-and-maintenance.md`; ADR-0004 |
-| §32–§33 Infrastructure | `docker-compose.yml`; `README.md` |
+| §32–§33 Infrastructure | `docker-compose.yml`; `.env.example`; `README.md` |
 | §34 File Map | Repository structure |
 | §35 Version History | This document |
 | §36 AI Disclosure | `README.md` §4; BYOP instructions |
@@ -2761,28 +2788,22 @@ Per academic integrity requirements, the team discloses AI usage:
 
 | # | Rule | Source |
 |---|---|---|
-| 1 | `(isSellable \|\| isPizzaComponent) == true` — *not applicable to OEE-Sentinel* | — |
-| 2 | `criticalLimit > warningLimit` — *not applicable to OEE-Sentinel* | — |
-| 3 | `stockUnitsConsumed ≥ 0` — *not applicable to OEE-Sentinel* | — |
-| 4 | `currentUnits ≥ 0` — *not applicable to OEE-Sentinel* | — |
-| 5 | `currentUnits ≥ stockUnitsConsumed × defaultQuantity` — *not applicable to OEE-Sentinel* | — |
-| 6 | Predefined pizza ≠ pizza component — *not applicable to OEE-Sentinel* | — |
-| 7 | **`plannedProductionTime > 0`** (else `OeeCalculatorEngine` throws) | ADR-0006 §Decision.3 |
-| 8 | **`totalDowntime ≤ plannedProductionTime`** (else `OeeCalculatorEngine` throws) | ADR-0006 §Decision.3 |
-| 9 | **`TotalParts ≥ ApprovedParts ≥ 0`** | ADR-0006 §Decision.1 |
-| 10 | **`RejectedParts = TotalParts − ApprovedParts`** (computed, not stored) | ADR-0006 §Decision.1 |
-| 11 | **All OEE percentages clamped to `[0,1]`** | ADR-0006 §Decision.3 |
-| 12 | **`Performance > 1` clamps to 1.0** (defensive) | ADR-0006 §Decision.3 |
-| 13 | **`TotalParts == 0 ⇒ Quality = 1.0`** (neutral) | ADR-0006 §Decision.3 |
-| 14 | **`operating == 0 ⇒ A = P = 0`** | ADR-0006 §Decision.3 |
-| 15 | **`ProductionShift` immutable after persist** (except `SupersededBy`) | ADR-0006 §Decision.2 |
-| 16 | **One current shift per `(machine, window)`** | §17.4 (partial unique index) |
-| 17 | **`MachineCode` unique (case-insensitive)** | §17.1 |
-| 18 | **`DowntimeReasonCode` unique (case-insensitive)** | §17.2 |
-| 19 | **`LogIngestion.Status = FAILED ⇒ FailureReason IS NOT NULL`** | §17.3 |
-| 20 | **`LogIngestion.Status = COMPLETED ⇒ CompletedAt IS NOT NULL`** | §17.3 |
-| 21 | **Pareto entries sorted by `seconds DESC`, ties broken by `reasonCode ASC`** | §23.4 |
-| 22 | **Aggregated OEE computed from totals, never averaged** | §23.2 |
+| 1 | **`plannedProductionTime > 0`** (else `OeeCalculatorEngine` throws) | ADR-0006 §Decision.3 |
+| 2 | **`totalDowntime ≤ plannedProductionTime`** (else `OeeCalculatorEngine` throws) | ADR-0006 §Decision.3 |
+| 3 | **`TotalParts ≥ ApprovedParts ≥ 0`** | ADR-0006 §Decision.1 |
+| 4 | **`RejectedParts = TotalParts − ApprovedParts`** (computed, not stored) | ADR-0006 §Decision.1 |
+| 5 | **All OEE percentages clamped to `[0,1]`** | ADR-0006 §Decision.3 |
+| 6 | **`Performance > 1` clamps to 1.0** (defensive) | ADR-0006 §Decision.3 |
+| 7 | **`TotalParts == 0 ⇒ Quality = 1.0`** (neutral) | ADR-0006 §Decision.3 |
+| 8 | **`operating == 0 ⇒ A = P = 0`** | ADR-0006 §Decision.3 |
+| 9 | **`ProductionShift` immutable after persist** (except `SupersededBy`) | ADR-0006 §Decision.2 |
+| 10 | **One current shift per `(machine, window)`** | §17.4 (partial unique index) |
+| 11 | **`MachineCode` unique (case-insensitive)** | §17.1 |
+| 12 | **`DowntimeReasonCode` unique (case-insensitive)** | §17.2 |
+| 13 | **`LogIngestion.Status = FAILED ⇒ FailureReason IS NOT NULL`** | §17.3 |
+| 14 | **`LogIngestion.Status = COMPLETED ⇒ CompletedAt IS NOT NULL`** | §17.3 |
+| 15 | **Pareto entries sorted by `seconds DESC`, ties broken by `reasonCode ASC`** | §23.4 |
+| 16 | **Aggregated OEE computed from totals, never averaged** | §23.2 |
 
 ---
 
@@ -2801,45 +2822,6 @@ Per academic integrity requirements, the team discloses AI usage:
 
 ---
 
-*End of Knowledge Base v1.0 — OEE-Sentinel Master Edition*
+*End of Knowledge Base v1.1 — OEE-Sentinel Master Edition*
 
 *Total sections: 37 + 3 appendices. Consolidated from 20+ source artifacts. English-language authoritative edition. All architectural decisions, business invariants, and technical specifications traceable to §37.*
-
----
-
-## Verification of the KB against the source files
-
-| Source file | Where it appears in this KB |
-|---|---|
-| `docs/sad/01-problem-statement.md` | §1, §2, §6, §27 |
-| `docs/sad/02-context.md` | §2, §3 |
-| `docs/sad/04-principles-and-guidelines.md` | §3 |
-| `docs/sad/05-key-scenarios.md` | §4 |
-| `docs/sad/06-api-design-specification.md` | §21, §23, §24, §25 |
-| `docs/sad/07-relational-mapping-and-persistence-strategy.md` | §16, §18, §20 |
-| `docs/sad/08-database-structure.md` | §17, §19 |
-| `docs/sad/03-rationale/ADR-0001-architectural-style.md` | §5.1 |
-| `docs/sad/03-rationale/ADR-0002-technology-stack.md` | §5.2 |
-| `docs/sad/03-rationale/ADR-0003-persistence-strategy.md` | §5.3 |
-| `docs/sad/03-rationale/ADR-0004-ui-strategy.md` | §5.4 |
-| `docs/sad/03-rationale/ADR-0005-log-parsing-strategy.md` | §5.5 |
-| `docs/sad/03-rationale/ADR-0006-domain-modelling-strategy.md` | §5.6 |
-| `docs/sad/03-rationale/ADR-0007-testing-strategy.md` | §5.7 |
-| `docs/sad/03-rationale/README.md` | §5.8, §5.9 |
-| `docs/domain/domain-model.md` | §8, §9 |
-| `docs/glossary.md` | §7 |
-| `docs/architecture/architecture-summary.md` | §3, §13, §22 |
-| `docs/architecture/components-diagram.md` | §13, §14 |
-| `docs/architecture/use-case-diagram.md` | §15 |
-| `docs/architecture/frontend-implementation-and-maintenance.md` | §31 |
-| `docs/api/openapi.yaml` | §21–§26 |
-| `docs/user-stories/README.md` | §6 |
-| `README.md` | §1, §29, §33 |
-| `ROADMAP.md` | §30 |
-| `(Ext) BYOP - Project submission instructions.pdf` | §1, §29, §36 |
-
----
-
-**End of Knowledge Base v1.0.**
-
-The document is now ready to be used as the single source of truth for the next phase — **requirements engineering for each user story** (acceptance criteria, SSDs, edge cases, and test scenarios for LOG-01, LOG-02, OEE-01, OEE-02, OEE-03, MACH-01, OBS-01). Every future requirement discussion, ADR, and code review can cite a section of this KB to justify decisions. The KB is additive: as T1–T8 land, new sections (§38+) will be appended without modifying existing sections, following the LaPrizza/FlowGuard evolution principle (additive, never subtractive).
