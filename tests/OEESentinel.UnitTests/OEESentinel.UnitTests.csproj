@@ -31,4 +31,9 @@
     <ProjectReference Include="..\..\src\OEESentinel.Application\OEESentinel.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\OEESentinel.Domain\OEESentinel.Domain.csproj" />
+    <ProjectReference Include="..\..\src\OEESentinel.Application\OEESentinel.Application.csproj" />
+  </ItemGroup>
+
 </Project>

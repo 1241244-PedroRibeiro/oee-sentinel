@@ -1,0 +1,68 @@
+@page "/machines/{Code}"
+@rendermode InteractiveServer
+@inject IGetMachineOeeHandler OeeHandler
+@inject IGetDowntimeParetoHandler ParetoHandler
+
+<PageTitle>Machine @Code</PageTitle>
+
+<h1>Machine @Code</h1>
+
+<div class="mb-3">
+    <label>Window:</label>
+    <select @bind="_days" @bind:after="Reload">
+        <option value="7">Last 7 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+    </select>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-warning">@_error</div>
+}
+else if (_oee is not null)
+{
+    <div class="row g-4 mb-4 text-center">
+        <div class="col-md-3">
+            <OeeGauge Value="_oee.Availability" Label="Availability" Color="#0dcaf0" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_oee.Performance" Label="Performance" Color="#ffc107" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_oee.Quality" Label="Quality" Color="#198754" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_oee.Oee" Label="Overall OEE" Color="#0d6efd" />
+        </div>
+    </div>
+
+    <p><small>@_oee.ShiftsIncluded shifts · @_oee.Totals.TotalParts parts total</small></p>
+
+    <a class="btn btn-outline-secondary" href="/machines/@Code/pareto">View Pareto →</a>
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = "";
+    private int _days = 7;
+    private MachineOeeAggregateDto? _oee;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync() => await Reload();
+
+    private async Task Reload()
+    {
+        _error = null;
+        _oee = null;
+        try
+        {
+            var to = DateTimeOffset.UtcNow;
+            var from = to.AddDays(-_days);
+            _oee = await OeeHandler.HandleAsync(new GetMachineOeeQuery(new MachineCode(Code), from, to), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

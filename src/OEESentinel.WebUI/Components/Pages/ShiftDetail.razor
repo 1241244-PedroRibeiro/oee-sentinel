@@ -1,0 +1,92 @@
+@page "/machines/{Code}/shifts/{ShiftId:guid}"
+@rendermode InteractiveServer
+@inject IGetMachineShiftHandler Handler
+
+<PageTitle>Shift Detail — @Code</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else if (_dto is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <h1>Shift Detail — @_dto.MachineCode</h1>
+    <p class="text-muted">@_dto.Window.Start.ToString("yyyy-MM-dd HH:mm") → @_dto.Window.End.ToString("yyyy-MM-dd HH:mm") UTC</p>
+
+    <div class="row g-4 mb-4 text-center">
+        <div class="col-md-3">
+            <OeeGauge Value="_dto.Availability" Label="Availability" Color="#0dcaf0" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_dto.Performance" Label="Performance" Color="#ffc107" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_dto.Quality" Label="Quality" Color="#198754" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_dto.Oee" Label="Overall OEE" Color="#0d6efd" />
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <h5>Production Totals</h5>
+            <table class="table table-sm">
+                <tr><th>Total Parts</th><td>@_dto.TotalParts</td></tr>
+                <tr><th>Approved</th><td>@_dto.ApprovedParts</td></tr>
+                <tr><th>Rejected</th><td>@_dto.RejectedParts</td></tr>
+            </table>
+        </div>
+        <div class="col-md-6">
+            <h5>Downtime Breakdown</h5>
+            @if (_dto.DowntimeBreakdown.Count == 0)
+            {
+                <p class="text-muted">No downtime recorded.</p>
+            }
+            else
+            {
+                <table class="table table-sm">
+                    <thead><tr><th>Reason</th><th>Category</th><th>Duration</th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _dto.DowntimeBreakdown)
+                        {
+                            <tr>
+                                <td>@d.ReasonCode</td>
+                                <td><span class="badge bg-@(d.Category == "PLANNED" ? "info" : "warning")">@d.Category</span></td>
+                                <td>@(TimeSpan.FromSeconds(d.Seconds).ToString(@"hh\:mm\:ss"))</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    <p class="text-muted mt-3">
+        <small>Ingestion: <code>@_dto.SourceIngestionId</code> · Recorded: @_dto.RecordedAt.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</small>
+    </p>
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = "";
+    [Parameter] public Guid ShiftId { get; set; }
+
+    private ProductionShiftSummaryDto? _dto;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _dto = await Handler.HandleAsync(new GetMachineShiftQuery(ShiftId), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

@@ -1,0 +1,52 @@
+@page "/machines/{Code}/pareto"
+@rendermode InteractiveServer
+@inject IGetDowntimeParetoHandler Handler
+
+<PageTitle>Pareto — @Code</PageTitle>
+
+<h1>Downtime Pareto — @Code</h1>
+
+@if (_error is not null)
+{
+    <div class="alert alert-warning">@_error</div>
+}
+else if (_dto is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_dto.Entries.Count == 0)
+{
+    <p class="text-muted">No downtime recorded in this window.</p>
+}
+else
+{
+    <p><strong>Total downtime:</strong> @(TimeSpan.FromSeconds(_dto.TotalDowntimeSeconds).ToString(@"hh\:mm\:ss")) across @_dto.TotalShifts shifts</p>
+
+    <div class="card shadow-sm mt-4">
+        <div class="card-body">
+            <ParetoChart Entries="_dto.Entries" />
+        </div>
+    </div>
+    
+    <!-- A tabela antiga foi removida. O gráfico Chart.js renderiza agora as barras horizontais. -->
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = "";
+    private DowntimeParetoDto? _dto;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            var to = DateTimeOffset.UtcNow;
+            var from = to.AddDays(-30);
+            _dto = await Handler.HandleAsync(new GetDowntimeParetoQuery(new MachineCode(Code), from, to), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

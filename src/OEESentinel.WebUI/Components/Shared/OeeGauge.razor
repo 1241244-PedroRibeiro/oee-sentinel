@@ -1,0 +1,45 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="text-center">
+    <div style="height: 150px; position: relative; margin-bottom: 10px;">
+        <canvas id="@_canvasId"></canvas>
+    </div>
+    <h6 class="text-muted mb-0">@Label</h6>
+    <h3 class="mb-0">@((Value * 100).ToString("F1"))%</h3>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public double Value { get; set; }
+    [Parameter] public string Label { get; set; } = "OEE";
+    [Parameter] public string Color { get; set; } = "#0d6efd"; // Bootstrap primary
+
+    private readonly string _canvasId = $"gauge_{Guid.NewGuid():N}";
+    private IJSObjectReference? _module;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/chart-interop.js");
+            await _module.InvokeVoidAsync("createGauge", _canvasId, Label, Value * 100, Color);
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.InvokeVoidAsync("updateChart", _canvasId, Value * 100);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.InvokeVoidAsync("destroyChart", _canvasId);
+            await _module.DisposeAsync();
+        }
+    }
+}

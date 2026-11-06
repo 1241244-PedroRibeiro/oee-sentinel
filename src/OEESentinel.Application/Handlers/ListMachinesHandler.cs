@@ -1,14 +1,9 @@
+using OEESentinel.Application.Commands;
 using OEESentinel.Application.Dtos;
+using OEESentinel.Application.Ports.Inbound;
 using OEESentinel.Application.Ports.Outbound;
 
 namespace OEESentinel.Application.Handlers;
-
-public record ListMachinesQuery();
-
-public interface IListMachinesHandler
-{
-    Task<IReadOnlyList<MachineDto>> HandleAsync(ListMachinesQuery query, CancellationToken ct = default);
-}
 
 public class ListMachinesHandler : IListMachinesHandler
 {

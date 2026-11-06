@@ -422,7 +422,7 @@ dotnet ef database update \
 dotnet run --project src/OEESentinel.WebUI
 ```
 
-Open **http://localhost:5000** in a browser. In `Development`, the seed data (`MAQ-01`, `MAQ-02`, `PRESSA-B2`, six downtime reasons, `samples/sample_shift.csv` pre-ingested) is applied automatically (`SeedData:Enabled = true` in `appsettings.Development.json`).
+Open **http://localhost:5278** in a browser. In `Development`, the seed data (`MAQ-01`, `MAQ-02`, `PRESSA-B2`, six downtime reasons, `samples/sample_shift.csv` pre-ingested) is applied automatically (`SeedData:Enabled = true` in `appsettings.Development.json`).
 
 ### 8.3. Building
 
@@ -524,8 +524,8 @@ Follow `docs/domain/domain-model.md` §6 (rationale log). Any new aggregate or V
 | Compiles | `dotnet build` |
 | Unit tests pass | `dotnet test` |
 | Migration is up to date | `dotnet ef migrations list` (should show all applied) |
-| Dashboard renders | `dotnet run --project src/OEESentinel.WebUI` then open http://localhost:5000 |
-| REST API works | `curl http://localhost:5000/api/v1/health` |
+| Dashboard renders | `dotnet run --project src/OEESentinel.WebUI` then open http://localhost:5278 |
+| REST API works | `curl http://localhost:5278/api/v1/health` |
 
 **End-to-end browser tests are not in the baseline** (no Playwright — see ADR-0007). Manual verification steps for each page are documented in `ROADMAP.md` P0-8 acceptance criteria.
 

@@ -1,0 +1,46 @@
+@page "/ingestions"
+@rendermode InteractiveServer
+@inject IListRecentIngestionsHandler Handler
+
+<PageTitle>Ingestions</PageTitle>
+
+<h1>Recent Ingestions</h1>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else
+{
+    <table class="table table-sm">
+        <thead><tr><th>Uploaded</th><th>Machine</th><th>File</th><th>Status</th><th>Processed</th><th>Rejected</th><th>Failure</th></tr></thead>
+        <tbody>
+            @foreach (var i in _list)
+            {
+                <tr>
+                    <td>@i.UploadedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>@i.MachineCode</td>
+                    <td><small>@i.OriginalFileName</small></td>
+                    <td><IngestionStatusBadge Status="@i.Status" /></td>
+                    <td>@i.RowsProcessed</td>
+                    <td>@i.RowsRejected</td>
+                    <td><small class="text-danger">@i.FailureReason</small></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private IReadOnlyList<LogIngestionDto> _list = Array.Empty<LogIngestionDto>();
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _list = await Handler.HandleAsync(new ListRecentIngestionsQuery(50), CancellationToken.None);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+}

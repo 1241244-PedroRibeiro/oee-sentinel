@@ -1,0 +1,36 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+@using OEESentinel.Application.Dtos
+
+<div style="height: 400px; position: relative;">
+    <canvas id="@_canvasId"></canvas>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ParetoEntryDto> Entries { get; set; } = Array.Empty<ParetoEntryDto>();
+
+    private readonly string _canvasId = $"pareto_{Guid.NewGuid():N}";
+    private IJSObjectReference? _module;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Entries.Count > 0)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/chart-interop.js");
+            
+            var labels = Entries.Select(e => e.ReasonCode).ToArray();
+            var data = Entries.Select(e => e.Seconds).ToArray();
+
+            await _module.InvokeVoidAsync("createBarChart", _canvasId, labels, data);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.InvokeVoidAsync("destroyChart", _canvasId);
+            await _module.DisposeAsync();
+        }
+    }
+}
