@@ -22,28 +22,13 @@ else
 {
     <p><strong>Total downtime:</strong> @(TimeSpan.FromSeconds(_dto.TotalDowntimeSeconds).ToString(@"hh\:mm\:ss")) across @_dto.TotalShifts shifts</p>
 
-    <table class="table">
-        <thead><tr><th>Rank</th><th>Reason</th><th>Category</th><th>Duration</th><th>Share</th></tr></thead>
-        <tbody>
-            @for (var i = 0; i < _dto.Entries.Count; i++)
-            {
-                var e = _dto.Entries[i];
-                <tr>
-                    <td>@(i + 1)</td>
-                    <td><strong>@e.ReasonCode</strong><br/><small class="text-muted">@e.Description</small></td>
-                    <td><span class="badge bg-@(e.Category == "PLANNED" ? "info" : "warning")">@e.Category</span></td>
-                    <td>@(TimeSpan.FromSeconds(e.Seconds).ToString(@"hh\:mm\:ss"))</td>
-                    <td>
-                        <div class="progress" style="height: 20px;">
-                            <div class="progress-bar" style="width: @((e.Percentage * 100).ToString("F1"))%;">
-                                @((e.Percentage * 100).ToString("F1"))%
-                            </div>
-                        </div>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
+    <div class="card shadow-sm mt-4">
+        <div class="card-body">
+            <ParetoChart Entries="_dto.Entries" />
+        </div>
+    </div>
+    
+    <!-- A tabela antiga foi removida. O gráfico Chart.js renderiza agora as barras horizontais. -->
 }
 
 @code {

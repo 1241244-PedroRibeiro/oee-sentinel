@@ -22,23 +22,19 @@
 }
 else if (_oee is not null)
 {
-    <div class="row g-3 mb-4">
-        <div class="col-md-3"><div class="card"><div class="card-body">
-            <h6 class="text-muted">Availability</h6>
-            <h3>@((_oee.Availability * 100).ToString("F1"))%</h3>
-        </div></div></div>
-        <div class="col-md-3"><div class="card"><div class="card-body">
-            <h6 class="text-muted">Performance</h6>
-            <h3>@((_oee.Performance * 100).ToString("F1"))%</h3>
-        </div></div></div>
-        <div class="col-md-3"><div class="card"><div class="card-body">
-            <h6 class="text-muted">Quality</h6>
-            <h3>@((_oee.Quality * 100).ToString("F1"))%</h3>
-        </div></div></div>
-        <div class="col-md-3"><div class="card bg-primary text-white"><div class="card-body">
-            <h6>OEE</h6>
-            <h3>@((_oee.Oee * 100).ToString("F1"))%</h3>
-        </div></div></div>
+    <div class="row g-4 mb-4 text-center">
+        <div class="col-md-3">
+            <OeeGauge Value="_oee.Availability" Label="Availability" Color="#0dcaf0" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_oee.Performance" Label="Performance" Color="#ffc107" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_oee.Quality" Label="Quality" Color="#198754" />
+        </div>
+        <div class="col-md-3">
+            <OeeGauge Value="_oee.Oee" Label="Overall OEE" Color="#0d6efd" />
+        </div>
     </div>
 
     <p><small>@_oee.ShiftsIncluded shifts · @_oee.Totals.TotalParts parts total</small></p>

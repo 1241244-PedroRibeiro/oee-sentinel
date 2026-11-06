@@ -17,30 +17,18 @@ else
     <h1>Shift Detail — @_dto.MachineCode</h1>
     <p class="text-muted">@_dto.Window.Start.ToString("yyyy-MM-dd HH:mm") → @_dto.Window.End.ToString("yyyy-MM-dd HH:mm") UTC</p>
 
-    <div class="row g-3 mb-4">
+    <div class="row g-4 mb-4 text-center">
         <div class="col-md-3">
-            <div class="card"><div class="card-body">
-                <h6 class="text-muted">Availability</h6>
-                <h3>@((_dto.Availability * 100).ToString("F1"))%</h3>
-            </div></div>
+            <OeeGauge Value="_dto.Availability" Label="Availability" Color="#0dcaf0" />
         </div>
         <div class="col-md-3">
-            <div class="card"><div class="card-body">
-                <h6 class="text-muted">Performance</h6>
-                <h3>@((_dto.Performance * 100).ToString("F1"))%</h3>
-            </div></div>
+            <OeeGauge Value="_dto.Performance" Label="Performance" Color="#ffc107" />
         </div>
         <div class="col-md-3">
-            <div class="card"><div class="card-body">
-                <h6 class="text-muted">Quality</h6>
-                <h3>@((_dto.Quality * 100).ToString("F1"))%</h3>
-            </div></div>
+            <OeeGauge Value="_dto.Quality" Label="Quality" Color="#198754" />
         </div>
         <div class="col-md-3">
-            <div class="card bg-primary text-white"><div class="card-body">
-                <h6>OEE</h6>
-                <h3>@((_dto.Oee * 100).ToString("F1"))%</h3>
-            </div></div>
+            <OeeGauge Value="_dto.Oee" Label="Overall OEE" Color="#0d6efd" />
         </div>
     </div>
 
