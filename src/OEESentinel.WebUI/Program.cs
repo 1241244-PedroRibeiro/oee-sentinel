@@ -15,11 +15,13 @@ using OEESentinel.Domain.Exceptions;
 using OEESentinel.Domain.ValueObjects;
 using OEESentinel.WebUI.Errors;
 using System.Globalization;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddOpenApi();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
@@ -70,6 +72,12 @@ app.MapStaticAssets();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference();
+}
 
 // ── MACH-01 ──────────────────────────────────────────────────────────────
 app.MapGet("/api/v1/machines", async (IListMachinesHandler handler, CancellationToken ct) =>
