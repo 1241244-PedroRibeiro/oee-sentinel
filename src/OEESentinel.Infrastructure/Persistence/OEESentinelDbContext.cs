@@ -20,4 +20,5 @@ public class OEESentinelDbContext : DbContext
     public DbSet<LogIngestion> LogIngestions => Set<LogIngestion>();
     public DbSet<ProductionShift> ProductionShifts => Set<ProductionShift>();
     public DbSet<ProductionEventRow> ProductionEvents => Set<ProductionEventRow>();
+    public DbSet<User> Users => Set<User>();
 }
